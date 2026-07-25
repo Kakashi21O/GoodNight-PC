@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox
 from typing import Optional
 
 from app.timer_manager import TimerManager, TimerState
+from app.power_manager import PowerManager, PowerAction, ACTION_LABELS
 from app.shutdown_manager import ShutdownManager
 from app.settings_manager import SettingsManager
 from app.utils import format_duration, format_shutdown_time, play_alert_sound, is_windows
@@ -13,12 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 class App(tk.Tk):
-    def __init__(self, shutdown_manager: ShutdownManager, settings: SettingsManager):
+    def __init__(self, shutdown_manager: ShutdownManager, settings: SettingsManager,
+                 power_manager: Optional[PowerManager] = None):
         super().__init__()
         self.shutdown_manager = shutdown_manager
+        self.power_manager = power_manager or PowerManager(mock_mode=shutdown_manager.mock_mode)
         self.settings = settings
         self.timer = TimerManager()
         self.timer.set_root(self)
+        self._selected_action = PowerAction(settings.get("selected_action", "shutdown"))
 
         self.title("Auto Shutdown Timer")
         self.geometry("400x420")
@@ -216,7 +220,7 @@ class App(tk.Tk):
         if self.timer.state in (TimerState.RUNNING, TimerState.PAUSED):
             remaining = self.timer.get_remaining()
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             h = int(remaining) // 3600
             m = (int(remaining) % 3600) // 60
             s = int(remaining) % 60
@@ -228,7 +232,7 @@ class App(tk.Tk):
 
     def _on_cancel(self) -> None:
         self.timer.cancel()
-        self.shutdown_manager.abort_shutdown()
+        self.power_manager.abort()
         self._show_idle()
         self._error_var.set("Shutdown cancelled")
         logger.info("Timer cancelled")
@@ -258,7 +262,7 @@ class App(tk.Tk):
     def _show_warning(self) -> None:
         if self._warning_window is not None:
             return
-        self._warning_window = WarningWindow(self, self.timer, self.shutdown_manager, self.settings,
+        self._warning_window = WarningWindow(self, self.timer, self.power_manager, self.settings,
                                               on_done=self._on_warning_done)
 
     def _on_warning_done(self, action: str, session_id: int) -> None:
@@ -270,7 +274,7 @@ class App(tk.Tk):
 
         if action == "cancel":
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             self._show_idle()
             self._error_var.set("Shutdown cancelled")
         elif action == "postpone":
@@ -282,7 +286,7 @@ class App(tk.Tk):
             self._error_var.set("Shutdown postponed")
         elif action == "new_timer":
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             self._show_idle()
         elif action == "shutdown":
             self.timer.cancel()
@@ -296,33 +300,34 @@ class App(tk.Tk):
             self._warning_window.destroy()
             self._warning_window = None
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             self._show_idle()
 
         if self.timer.state in (TimerState.RUNNING, TimerState.PAUSED):
             if messagebox.askyesno("Active Timer",
                                    "A shutdown timer is active. Cancel timer and exit?"):
                 self.timer.cancel()
-                self.shutdown_manager.abort_shutdown()
+                self.power_manager.abort()
                 logger.info("Application closed (timer cancelled)")
                 self.destroy()
             return
 
         if self.timer.state == TimerState.WARNING:
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
 
         logger.info("Application closed")
         self.destroy()
 
 
 class WarningWindow(tk.Toplevel):
-    def __init__(self, parent: App, timer: TimerManager, shutdown_manager: ShutdownManager,
+    def __init__(self, parent: App, timer: TimerManager, power_manager: PowerManager,
                  settings: SettingsManager, on_done):
         super().__init__(parent)
         self.parent_app = parent
         self.timer = timer
-        self.shutdown_manager = shutdown_manager
+        self.power_manager = power_manager
+        self.shutdown_manager = power_manager
         self.settings = settings
         self.on_done = on_done
         self._session_id = timer.session_id
@@ -392,7 +397,7 @@ class WarningWindow(tk.Toplevel):
 
     def _tick(self) -> None:
         if self._remaining <= 0:
-            self.shutdown_manager.request_shutdown(delay_seconds=10)
+            self.power_manager.execute(self.parent_app._selected_action, delay_seconds=10)
             self._closed_safely = True
             self.on_done("shutdown", self._session_id)
             self.destroy()
@@ -423,7 +428,7 @@ class WarningWindow(tk.Toplevel):
             if not messagebox.askyesno("Confirm Shutdown", "Shut down your PC now?"):
                 return
         self._closed_safely = True
-        self.shutdown_manager.immediate_shutdown()
+        self.power_manager.execute_immediate(self.parent_app._selected_action)
         self.on_done("shutdown", self._session_id)
         self.destroy()
 
