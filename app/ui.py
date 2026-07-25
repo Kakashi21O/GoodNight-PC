@@ -583,8 +583,15 @@ class App(tk.Tk):
         if session_id != self.timer.session_id:
             return
         if self.timer.state == TimerState.RUNNING:
+            if hasattr(self, "_last_tick_remaining"):
+                elapsed = self._last_tick_remaining - remaining
+                if elapsed > 3 or elapsed < -3:
+                    logger.warning("Clock drift detected: jumped %.1fs", elapsed)
+                    save_active_state(self._selected_action.value, time.time() + remaining, self._initial_duration)
+            self._last_tick_remaining = remaining
             self._update_countdown(remaining)
             self._update_progress(remaining)
+            self._update_schedule(remaining)
 
     def _update_countdown(self, remaining: float) -> None:
         self._countdown_var.set(format_duration(int(remaining)))
