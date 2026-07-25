@@ -504,7 +504,7 @@ class App(tk.Tk):
         self._warning_window = WarningWindow(self, self.timer, self.power_manager, self.settings,
                                               on_done=self._on_warning_done)
 
-    def _on_warning_done(self, action: str, session_id: int) -> None:
+    def _on_warning_done(self, action: str, session_id: int, minutes: int = 30) -> None:
         if session_id != self.timer.session_id:
             logger.info("Stale warning callback ignored (session %d != %d)", session_id, self.timer.session_id)
             return
@@ -517,14 +517,15 @@ class App(tk.Tk):
             self._show_idle()
             self._error_var.set("Timer cancelled")
         elif action == "postpone":
+            postpone_secs = minutes * 60
             self.timer.cancel()
-            self.timer.start(1800, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
-            self._initial_duration = 1800
+            self.timer.start(postpone_secs, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
+            self._initial_duration = postpone_secs
             self._show_running()
-            self._update_countdown(1800)
-            self._update_schedule(1800)
-            self._update_progress(1800)
-            self._error_var.set("Postponed by 30 minutes")
+            self._update_countdown(postpone_secs)
+            self._update_schedule(postpone_secs)
+            self._update_progress(postpone_secs)
+            self._error_var.set(f"Postponed by {minutes} minutes")
         elif action == "new_timer":
             self.timer.cancel()
             self.power_manager.abort()
@@ -606,11 +607,20 @@ class WarningWindow(tk.Toplevel):
         grid.columnconfigure(0, weight=1)
         grid.columnconfigure(1, weight=1)
 
+        postpone_opts = settings.get("postpone_minutes", [5, 10, 15, 30, 60])
+        if not postpone_opts:
+            postpone_opts = [30]
+        self._postpone_var = tk.StringVar(value=f"+{postpone_opts[0]}m")
+
         btn_style = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "padx": 8, "pady": 8}
         tk.Button(grid, text="Cancel", bg=c["success"], fg="white",
                   activebackground=c["success_hover"], command=self._on_cancel, **btn_style).grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=2)
-        tk.Button(grid, text="+30 min", bg=c["primary"], fg="white",
-                  activebackground=c["primary_hover"], command=self._on_postpone, **btn_style).grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=2)
+        postpone_menu = tk.OptionMenu(grid, self._postpone_var, *[f"+{m}m" for m in postpone_opts])
+        postpone_menu.configure(font=("Segoe UI", 10, "bold"), bg=c["primary"], fg="white",
+                                activebackground=c["primary_hover"], highlightthickness=0,
+                                relief=tk.FLAT)
+        postpone_menu["menu"].configure(font=("Segoe UI", 9), bg=c["surface"], fg=c["text"])
+        postpone_menu.grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=2)
         tk.Button(grid, text="New Timer", bg="#2563eb", fg="white",
                   activebackground="#1d4ed8", command=self._on_new_timer, **btn_style).grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=2)
         tk.Button(grid, text=action_label + " Now", bg=c["danger"], fg="white",
@@ -634,7 +644,12 @@ class WarningWindow(tk.Toplevel):
         self.destroy()
 
     def _on_postpone(self) -> None:
-        self.on_done("postpone", self._session_id)
+        try:
+            val = self._postpone_var.get().replace("+", "").replace("m", "")
+            minutes = int(val)
+        except (ValueError, AttributeError):
+            minutes = 30
+        self.on_done("postpone", self._session_id, minutes=minutes)
         self.destroy()
 
     def _on_new_timer(self) -> None:
@@ -707,6 +722,15 @@ class SettingsDialog(tk.Toplevel):
                        fg=c["text"], selectcolor=c["input_bg"], font=("Segoe UI", 9),
                        activebackground=c["bg"]).pack(anchor=tk.W, pady=3)
 
+        tk.Label(f, text="Postpone durations (minutes, comma-separated):", bg=c["bg"], fg=c["text"],
+                 font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(8, 2))
+        postpone_str = ",".join(str(m) for m in settings.get("postpone_minutes", [5, 10, 15, 30, 60]))
+        self._postpone_str_var = tk.StringVar(value=postpone_str)
+        tk.Entry(f, textvariable=self._postpone_str_var, width=30,
+                 font=("Consolas", 10), bg=c["input_bg"], fg=c["text"],
+                 insertbackground=c["text"], relief=tk.FLAT,
+                 highlightthickness=1, highlightbackground=c["border"]).pack(anchor=tk.W, pady=2)
+
         tk.Label(f, text="Appearance", font=("Segoe UI", 10, "bold"),
                  bg=c["bg"], fg=c["text_dim"]).pack(anchor=tk.W, pady=(12, 2))
         self._theme_var = tk.StringVar(value=settings.get("theme", "dark"))
@@ -740,6 +764,16 @@ class SettingsDialog(tk.Toplevel):
         self.settings.set("always_on_top_warning", self._topmost_var.get())
         self.settings.set("confirm_before_shutdown", self._confirm_var.get())
         self.settings.set("theme", self._theme_var.get())
+
+        raw = self._postpone_str_var.get().strip()
+        try:
+            vals = sorted(set(int(x.strip()) for x in raw.split(",") if x.strip()))
+            vals = [v for v in vals if 1 <= v <= 180]
+            if vals:
+                self.settings.set("postpone_minutes", vals)
+        except ValueError:
+            pass
+
         self.destroy()
 
     def _reset(self) -> None:
@@ -750,3 +784,4 @@ class SettingsDialog(tk.Toplevel):
             self._topmost_var.set(True)
             self._confirm_var.set(True)
             self._theme_var.set("dark")
+            self._postpone_str_var.set("5,10,15,30,60")
