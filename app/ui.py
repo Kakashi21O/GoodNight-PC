@@ -5,7 +5,7 @@ from tkinter import ttk, messagebox
 from typing import Optional
 
 from app.timer_manager import TimerManager, TimerState
-from app.power_manager import PowerManager, PowerAction, ACTION_LABELS
+from app.power_manager import PowerManager, PowerAction, ACTION_LABELS, ACTION_VERBS
 from app.shutdown_manager import ShutdownManager
 from app.settings_manager import SettingsManager
 from app.utils import format_duration, format_shutdown_time, play_alert_sound, is_windows
@@ -36,6 +36,7 @@ class App(tk.Tk):
         self._warning_window: Optional[WarningWindow] = None
 
         self._show_idle()
+        self._update_action_labels()
         logger.info("Application started")
 
     def _build_styles(self) -> None:
@@ -101,7 +102,8 @@ class App(tk.Tk):
             if label_text != "Seconds":
                 sep.pack(side=tk.LEFT, padx=2)
 
-        start_btn = ttk.Button(self._idle_frame, text="Start Shutdown Timer",
+        self._start_btn_var = tk.StringVar(value="Start Timer")
+        start_btn = ttk.Button(self._idle_frame, textvariable=self._start_btn_var,
                                style="Primary.TButton", command=self._on_start)
         start_btn.pack(pady=15)
 
@@ -134,7 +136,8 @@ class App(tk.Tk):
         title = ttk.Label(self._running_frame, text="Auto Shutdown Timer", style="Title.TLabel")
         title.pack(pady=(20, 5))
 
-        ttk.Label(self._running_frame, text="SHUTDOWN IN", style="Subtitle.TLabel").pack(pady=(10, 5))
+        self._action_label_var = tk.StringVar(value="SHUTDOWN IN")
+        ttk.Label(self._running_frame, textvariable=self._action_label_var, style="Subtitle.TLabel").pack(pady=(10, 5))
 
         self._countdown_var = tk.StringVar(value="00:00:00")
         countdown_label = ttk.Label(self._running_frame, textvariable=self._countdown_var, style="Big.TLabel")
@@ -160,7 +163,7 @@ class App(tk.Tk):
                                 command=self._on_change_timer)
         change_btn.pack(side=tk.LEFT, padx=(0, 5), expand=True, fill=tk.X)
 
-        cancel_btn = ttk.Button(btn_frame, text="Cancel Shutdown", style="Danger.TButton",
+        cancel_btn = ttk.Button(btn_frame, text="Cancel", style="Danger.TButton",
                                 command=self._on_cancel)
         cancel_btn.pack(side=tk.RIGHT, padx=(5, 0), expand=True, fill=tk.X)
 
@@ -173,6 +176,22 @@ class App(tk.Tk):
         self._idle_frame.pack_forget()
         self._running_frame.pack(fill=tk.BOTH, expand=True)
         self._pause_var.set("Pause")
+
+    def _update_action_labels(self) -> None:
+        label = ACTION_LABELS.get(self._selected_action, "Shut Down")
+        self._start_btn_var.set(f"Start {label}")
+        verb = "SHUTDOWN"
+        if self._selected_action == PowerAction.SLEEP:
+            verb = "SLEEP"
+        elif self._selected_action == PowerAction.HIBERNATE:
+            verb = "HIBERNATE"
+        elif self._selected_action == PowerAction.RESTART:
+            verb = "RESTART"
+        elif self._selected_action == PowerAction.LOCK:
+            verb = "LOCK"
+        elif self._selected_action == PowerAction.SIGN_OUT:
+            verb = "SIGN OUT"
+        self._action_label_var.set(f"{verb} IN")
 
     def _on_start(self) -> None:
         total, errors = self.timer.validate_duration(
@@ -335,7 +354,8 @@ class WarningWindow(tk.Toplevel):
         self._remaining = self._warning_duration
         self._closed_safely = False
 
-        self.title("SHUTDOWN READY")
+        action_label = ACTION_LABELS.get(self.parent_app._selected_action, "Shut Down")
+        self.title(f"{action_label} Ready")
         self.geometry("380x400")
         self.resizable(False, False)
         self.configure(bg="#1e1e2e")
@@ -350,11 +370,13 @@ class WarningWindow(tk.Toplevel):
         bg = "#1e1e2e"
         self.configure(bg=bg)
 
-        title = tk.Label(self, text="SHUTDOWN READY", font=("Segoe UI", 20, "bold"),
+        action_label = ACTION_LABELS.get(self.parent_app._selected_action, "Shut Down")
+        title = tk.Label(self, text=f"{action_label} Ready", font=("Segoe UI", 20, "bold"),
                          bg=bg, fg="#dc2626")
         title.pack(pady=(20, 5))
 
-        subtitle = tk.Label(self, text="Your PC will shut down in", font=("Segoe UI", 12),
+        verb = ACTION_VERBS.get(self.parent_app._selected_action, "shut down")
+        subtitle = tk.Label(self, text=f"Your PC will {verb} in", font=("Segoe UI", 12),
                             bg=bg, fg="#e2e8f0")
         subtitle.pack(pady=(5, 5))
 
