@@ -2,25 +2,54 @@
 
 A polished, reliable Windows Auto Shutdown Timer desktop application built with Python and tkinter.
 
-Designed for situations like watching YouTube, movies, streams, listening to music, downloading files, or leaving the computer running temporarily. Configure a shutdown countdown and continue using your PC normally. When the timer expires, a prominent 20-second warning popup appears with options to cancel, postpone, change the timer, or shut down immediately.
+Designed for situations like watching YouTube, movies, streams, listening to music, downloading files, or leaving the computer running temporarily. Configure a shutdown countdown and continue using your PC normally. When the timer expires, a prominent warning popup appears with options to cancel, postpone, change the timer, or power action immediately.
 
 ## Features
 
-- **Configurable Timer** - Set hours, minutes, and seconds for auto-shutdown
-- **Quick Presets** - One-click timers: 30 min, 1 hour, 2 hours, 3 hours
-- **Active Countdown** - Large countdown display with scheduled shutdown time
-- **Pause/Resume** - Freeze and continue the countdown at any time
-- **Add 30 Minutes** - Postpone shutdown by 30 minutes with one click
-- **Change Timer** - Replace the current timer with a new duration
-- **Cancel Shutdown** - Completely abort the shutdown process
-- **20-Second Warning** - Prominent popup with countdown before shutdown
+### Timer & Scheduling
+- **Duration Mode** - Set hours, minutes, and seconds for auto-shutdown
+- **Schedule Mode** - Pick a specific time (HH:MM AM/PM) for auto-shutdown
+- **Quick Presets** - One-click timers: 15 min, 30 min, 1 hour, 2 hours
+- **Custom Presets** - Save up to 8 user-defined presets (right-click to delete)
+- **Start Confirmation** - Timer summary dialog before starting
+
+### Power Actions
+- **6 Power Actions** - Shut Down, Restart, Sleep, Hibernate, Lock, Sign Out
+- **Action Selector** - Choose your preferred action before starting
+- **Action-Specific Labels** - UI dynamically reflects the selected action
+- **Hibernate Detection** - Automatically detects available power states
+
+### Active Timer
+- **Large Countdown Display** - Big clock-style countdown with target time
+- **Progress Bar** - Visual progress indicator
+- **Pause/Resume** - Freeze and continue the countdown (Space key)
+- **Add 30 Minutes** - Postpone shutdown with one click
+- **Configurable Postpone** - Choose from 1-60 minute postpone durations
+- **Change Timer** - Return to editor with remaining time
+- **Cancel** - Completely abort the shutdown process
+
+### Warning & Recovery
+- **20-Second Warning** - Prominent popup with configurable countdown
+- **4 Warning Actions** - Cancel, Postpone (configurable), New Timer, or Action Now
+- **Configurable Postpone Durations** - Set your own postpone options (5, 10, 15, 30, 60 min)
 - **Alert Sound** - Windows notification sound on warning (configurable)
-- **4 Warning Actions** - Cancel, +30 min, Set New Timer, or Shut Down Now
-- **Confirmation Required** - Immediate shutdown requires confirmation
-- **Settings** - Customize warning duration, sound, always-on-top, and more
+- **Timer Recovery** - Persists active timer state; resume after crash or restart
+- **Clock Drift Detection** - Detects system sleep/resume and updates timer state
+
+### UI & UX
+- **Theme System** - Dark and light themes with centralized color management
+- **Dashboard Layout** - Greeting, time input, action selector, presets
+- **Status Bar** - Shows current state (Ready/Timer active/Paused) + TEST MODE badge
+- **Settings Dialog** - Scrollable settings with Warning, Appearance, and About sections
+- **Keyboard Shortcuts** - Space (pause), Escape (close), Ctrl+S (settings)
+
+### Safety & Reliability
 - **Single Instance** - Prevents conflicting duplicate timers
+- **Atomic Settings** - Crash-safe settings writes via tempfile + replace
+- **Settings Migration** - Automatic schema versioning and migration
+- **Session IDs** - Prevent stale callbacks from triggering shutdown
 - **Test Mode** - Run safely without real shutdown commands
-- **Dark Theme** - Modern dark UI with colored accent buttons
+- **Global Exception Handler** - Catches and logs unhandled exceptions
 
 ## Screenshots
 
@@ -37,7 +66,7 @@ Designed for situations like watching YouTube, movies, streams, listening to mus
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/GoodNight-PC.git
+git clone https://github.com/Kakashi21O/GoodNight-PC.git
 cd GoodNight-PC
 ```
 
@@ -81,94 +110,98 @@ In test mode, shutdown operations are logged instead of executed.
 
 ### Setting a Timer
 
-1. Enter hours, minutes, and seconds in the input fields
-2. Click **Start Shutdown Timer**
-3. Or click a quick preset button (30 Min, 1 Hour, etc.)
+1. Choose a mode: **Countdown** (duration) or **At time** (specific time)
+2. Enter the time values
+3. Select a power action from the dropdown (Shut Down, Sleep, Restart, etc.)
+4. Click **Start** (or a quick preset) and confirm in the summary dialog
+
+### Custom Presets
+
+1. Set a duration in countdown mode
+2. Click the **+** button to save it as a preset
+3. Right-click a custom preset to delete it
+4. Up to 8 custom presets can be saved
 
 ### During Countdown
 
-- **Pause** - Freeze the countdown
-- **Resume** - Continue from where you paused
+- **Pause** (Space) - Freeze the countdown
+- **Resume** (Space) - Continue from where you paused
 - **+30 Minutes** - Add 30 minutes to the countdown
 - **Change Timer** - Return to the timer editor with the remaining time
-- **Cancel Shutdown** - Abort completely
+- **Cancel** - Abort completely
 
-### 20-Second Warning
+### Warning Popup
 
-When the timer expires, a popup appears with a 20-second countdown:
+When the timer expires, a popup appears with a configurable countdown:
 
-- **Cancel Shutdown** - Stop everything, return to idle
-- **+30 Minutes** - Postpone by 30 minutes
-- **Set New Timer** - Return to the timer editor
-- **Shut Down Now** - Shut down immediately (requires confirmation)
+- **Cancel** - Stop everything, return to idle
+- **Postpone** - Choose a duration from the dropdown (configurable in Settings)
+- **New Timer** - Return to the timer editor
+- **Action Now** - Execute the power action immediately (requires confirmation)
 
-Closing the warning popup with the X button cancels the shutdown.
+Closing the warning popup with the X button cancels the action.
 
 ### Settings
 
-Click **Settings** to configure:
+Click **Settings** (or Ctrl+S) to configure:
 
-- Warning countdown duration (5-120 seconds, default: 20)
+- Warning countdown duration (5-300 seconds, default: 20)
 - Alert sound on/off
 - Always-on-top for warning popup
-- Confirm before immediate shutdown
+- Confirm before immediate action
+- Postpone durations (comma-separated minutes)
+- Theme (dark/light)
 
 Settings are saved to `~/.goodnight_pc_settings.json`.
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| Space | Pause / Resume timer |
+| Escape | Close window / Cancel |
+| Ctrl+S | Open Settings |
 
 ## Test/Safe Mode
 
 When run with `--test`, all shutdown commands are logged instead of executed:
 
 ```
-[TEST MODE] Windows shutdown requested (delay=60s)
-[TEST MODE] Windows shutdown aborted
-[TEST MODE] Immediate shutdown requested
+[TEST MODE] Shut Down requested (delay=60s)
+[TEST MODE] Power action aborted
+[TEST MODE] Immediate Shut Down requested
 ```
 
 This allows full workflow testing without risk of shutting down your PC.
 
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| "Another instance is already running" | Close the other instance or check Task Manager |
-| No alert sound | Check Settings > Alert Sound is enabled; check Windows volume |
-| Timer doesn't start | Ensure hours/minutes/seconds are valid (0-23h, 0-59m, 0-59s) |
-| Settings not saving | Check write permissions in home directory |
-| Non-Windows platform | Shutdown functionality requires Windows |
-
-## Project Structure
+## Architecture
 
 ```
 GoodNight PC/
 ├── main.py                  # Entry point, single-instance lock, logging
 ├── requirements.txt         # Dependencies (none required)
 ├── README.md                # This file
-├── TO_DO_list.md            # Development specification
+├── .gitignore               # Git ignore rules
 │
 ├── app/
 │   ├── __init__.py          # Package init
+│   ├── version.py           # App name and version constants
+│   ├── theme.py             # ThemeManager with dark/light palettes
 │   ├── ui.py                # Main window, warning popup, settings dialog
 │   ├── timer_manager.py     # Timer engine with state machine
-│   ├── shutdown_manager.py  # Centralized Windows shutdown commands
-│   ├── settings_manager.py  # JSON settings persistence
+│   ├── power_manager.py     # PowerAction enum, command routing, execution guard
+│   ├── shutdown_manager.py  # Original Windows shutdown commands
+│   ├── settings_manager.py  # Atomic JSON settings with schema migration
+│   ├── recovery.py          # Timer state persistence and recovery
 │   └── utils.py             # Formatting, sound, platform detection
 │
-├── context/                 # Architecture documentation for AI agents
-│   ├── 01-project-overview.md
-│   ├── 02-architecture.md
-│   ├── 03-ui-ux.md
-│   ├── 04-development-rules.md
-│   ├── 05-progress-tracker.md
-│   └── 06-testing.md
+├── tests/
+│   ├── test_timer_manager.py    # Timer state machine tests (26 tests)
+│   ├── test_settings_manager.py # Settings persistence tests (14 tests)
+│   ├── test_power_manager.py    # Power manager tests (17 tests)
+│   └── test_recovery.py         # Recovery state tests (7 tests)
 │
-└── feature-specs/           # Feature specifications
-    ├── 01-main-window.md
-    ├── 02-timer-engine.md
-    ├── 03-shutdown-warning.md
-    ├── 04-shutdown-control.md
-    ├── 05-settings.md
-    └── 06-error-handling.md
+└── context/                 # Architecture docs (gitignored)
 ```
 
 ## Development Notes
@@ -176,18 +209,22 @@ GoodNight PC/
 - **State Machine**: IDLE -> RUNNING -> PAUSED -> WARNING -> SHUTTING_DOWN
 - **Timer Engine**: Uses absolute timestamps (`target_time = time.time() + duration`) to prevent drift
 - **Session IDs**: Increment on cancel/start to prevent stale callbacks from triggering shutdown
-- **Shutdown Centralization**: All shutdown calls go through `ShutdownManager` - never scattered in UI code
+- **Power Centralization**: All power calls go through `PowerManager` - never scattered in UI code
 - **Non-Blocking UI**: Uses tkinter's `after()` method instead of `time.sleep()`
 - **Mock Mode**: `--test` flag enables safe testing without real OS commands
+- **Atomic Writes**: Settings and recovery state use tempfile + `os.replace()` to prevent corruption
+- **Schema Migration**: Settings automatically migrate between schema versions
 
 ## Safety Behavior
 
 - **No shutdown over unexpected shutdown**: When state is ambiguous, the app defaults to not shutting down
-- **Confirmation required**: "Shut Down Now" always asks for confirmation
-- **X button on warning**: Cancels shutdown, does NOT trigger it
+- **Confirmation required**: Immediate power action always asks for confirmation
+- **X button on warning**: Cancels the action, does NOT trigger it
 - **Stale callback protection**: Session IDs ensure old timer callbacks cannot trigger shutdown after cancellation
 - **Cancel always works**: `shutdown /a` is called to abort any pending OS shutdown
 - **Test mode**: Cannot accidentally shut down the computer
+- **Timer recovery**: Active timers survive app crashes; offer to resume on next launch
+- **Clock drift detection**: Detects system sleep/resume and updates persisted state
 
 ## License
 
