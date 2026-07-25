@@ -43,7 +43,14 @@ class App(tk.Tk):
 
         self._show_idle()
         self._update_action_labels()
+        self._bind_shortcuts()
         logger.info("Application started")
+
+    def _bind_shortcuts(self) -> None:
+        self.bind("<space>", lambda e: self._on_pause_resume())
+        self.bind("<Escape>", lambda e: self._on_close())
+        self.bind("<Control-s>", lambda e: self._on_settings())
+        self.bind("<Control-S>", lambda e: self._on_settings())
 
     def _build_styles(self) -> None:
         c = self.theme.colors
