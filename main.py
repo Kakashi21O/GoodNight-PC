@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import os
 import sys
 import socket
@@ -15,13 +16,14 @@ _lock_socket = None
 def setup_logging(debug: bool = False) -> None:
     log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "goodnight_pc.log")
     level = logging.DEBUG if debug else logging.INFO
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+    )
+    console_handler = logging.StreamHandler(sys.stdout)
     logging.basicConfig(
         level=level,
         format=LOG_FORMAT,
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
+        handlers=[file_handler, console_handler],
     )
 
 
