@@ -11,6 +11,7 @@ from app.settings_manager import SettingsManager
 from app.theme import ThemeManager
 from app.utils import format_duration, format_shutdown_time, play_alert_sound, is_windows
 from app.version import APP_VERSION_STRING
+from app.recovery import save_active_state, load_active_state, clear_active_state
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,42 @@ class App(tk.Tk):
         self._show_idle()
         self._update_action_labels()
         self._bind_shortcuts()
+        self._check_recovery()
         logger.info("Application started")
+
+    def _check_recovery(self) -> None:
+        saved = load_active_state()
+        if saved is None:
+            return
+        action_val = saved.get("action", "shutdown")
+        remaining = saved.get("remaining", 0)
+        if remaining <= 0:
+            clear_active_state()
+            return
+
+        try:
+            self._selected_action = PowerAction(action_val)
+            self._update_action_labels()
+        except ValueError:
+            pass
+
+        label = ACTION_LABELS.get(self._selected_action, "Shut Down")
+        result = messagebox.askyesno(
+            "Timer Recovered",
+            f"A previous {label} timer was active.\n\n"
+            f"Remaining: {format_duration(int(remaining))}\n\n"
+            f"Resume this timer?"
+        )
+        if result:
+            self._initial_duration = remaining
+            self.timer.start(remaining, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
+            self._show_running()
+            self._update_countdown(remaining)
+            self._update_schedule(remaining)
+            self._update_progress(remaining)
+            logger.info("Timer recovered: %s remaining", format_duration(int(remaining)))
+        else:
+            clear_active_state()
 
     def _bind_shortcuts(self) -> None:
         self.bind("<space>", lambda e: self._on_pause_resume())
@@ -438,6 +474,8 @@ class App(tk.Tk):
     def _start_timer(self, total: int) -> None:
         self._initial_duration = total
         self.timer.start(total, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
+        target_time = time.time() + total
+        save_active_state(self._selected_action.value, target_time, total)
         self._show_running()
         self._update_countdown(total)
         self._update_schedule(total)
@@ -515,6 +553,7 @@ class App(tk.Tk):
             remaining = self.timer.get_remaining()
             self.timer.cancel()
             self.power_manager.abort()
+            clear_active_state()
             h = int(remaining) // 3600
             m = (int(remaining) % 3600) // 60
             s = int(remaining) % 60
@@ -527,6 +566,7 @@ class App(tk.Tk):
     def _on_cancel(self) -> None:
         self.timer.cancel()
         self.power_manager.abort()
+        clear_active_state()
         self._show_idle()
         self._error_var.set("Timer cancelled")
         logger.info("Timer cancelled")
@@ -535,6 +575,7 @@ class App(tk.Tk):
         if session_id != self.timer.session_id:
             logger.info("Stale expiration ignored (session %d != %d)", session_id, self.timer.session_id)
             return
+        clear_active_state()
         self.timer.state = TimerState.WARNING
         self._show_warning()
 
@@ -568,6 +609,7 @@ class App(tk.Tk):
         if action == "cancel":
             self.timer.cancel()
             self.power_manager.abort()
+            clear_active_state()
             self._show_idle()
             self._error_var.set("Timer cancelled")
         elif action == "postpone":
@@ -575,6 +617,8 @@ class App(tk.Tk):
             self.timer.cancel()
             self.timer.start(postpone_secs, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
             self._initial_duration = postpone_secs
+            target_time = time.time() + postpone_secs
+            save_active_state(self._selected_action.value, target_time, postpone_secs)
             self._show_running()
             self._update_countdown(postpone_secs)
             self._update_schedule(postpone_secs)
@@ -583,9 +627,11 @@ class App(tk.Tk):
         elif action == "new_timer":
             self.timer.cancel()
             self.power_manager.abort()
+            clear_active_state()
             self._show_idle()
         elif action == "shutdown":
             self.timer.cancel()
+            clear_active_state()
             self._show_idle()
 
     def _on_settings(self) -> None:
@@ -597,6 +643,7 @@ class App(tk.Tk):
             self._warning_window = None
             self.timer.cancel()
             self.power_manager.abort()
+            clear_active_state()
             self._show_idle()
 
         if self.timer.state in (TimerState.RUNNING, TimerState.PAUSED):
@@ -604,6 +651,7 @@ class App(tk.Tk):
                                    "A timer is active. Cancel and exit?"):
                 self.timer.cancel()
                 self.power_manager.abort()
+                clear_active_state()
                 logger.info("Application closed (timer cancelled)")
                 self.destroy()
             return
@@ -611,6 +659,7 @@ class App(tk.Tk):
         if self.timer.state == TimerState.WARNING:
             self.timer.cancel()
             self.power_manager.abort()
+            clear_active_state()
 
         logger.info("Application closed")
         self.destroy()
