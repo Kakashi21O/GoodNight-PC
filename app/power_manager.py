@@ -166,6 +166,13 @@ class PowerManager:
         return False
 
     @property
+    def execution_guard(self) -> int:
+        return self._execution_guard
+
+    def is_guard_valid(self, guard: int) -> bool:
+        return guard == self._execution_guard
+
+    @property
     def pending_action(self) -> Optional[PowerAction]:
         return self._pending_action
 
