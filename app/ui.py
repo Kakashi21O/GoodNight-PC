@@ -382,8 +382,53 @@ class App(tk.Tk):
         if errors:
             self._error_var.set("; ".join(errors))
             return
-
         self._error_var.set("")
+        self._pending_duration = total
+        self._show_start_summary(total)
+
+    def _show_start_summary(self, total: int) -> None:
+        c = self.theme.colors
+        action_label = ACTION_LABELS.get(self._selected_action, "Shut Down")
+
+        win = tk.Toplevel(self)
+        win.title("Confirm")
+        win.geometry("320x220")
+        win.resizable(False, False)
+        win.configure(bg=c["bg"])
+        win.transient(self)
+        win.grab_set()
+
+        tk.Label(win, text="Ready to start?", font=("Segoe UI", 14, "bold"),
+                 bg=c["bg"], fg=c["text"]).pack(pady=(18, 8))
+
+        target = time.time() + total
+        summary_lines = [
+            f"Action: {action_label}",
+            f"Duration: {format_duration(total)}",
+            f"Until: {format_shutdown_time(target).replace('Scheduled for ', '')}",
+        ]
+        for line in summary_lines:
+            tk.Label(win, text=line, font=("Segoe UI", 10),
+                     bg=c["bg"], fg=c["text_dim"]).pack(pady=1)
+
+        btn_frame = tk.Frame(win, bg=c["bg"])
+        btn_frame.pack(pady=(16, 0))
+
+        def confirm():
+            win.destroy()
+            self._start_timer(self._pending_duration)
+
+        def cancel():
+            win.destroy()
+
+        tk.Button(btn_frame, text="Start", bg=c["primary"], fg="white",
+                  font=("Segoe UI", 10, "bold"), activebackground=c["primary_hover"],
+                  relief="flat", padx=16, pady=6, command=confirm).pack(side=tk.LEFT, padx=6)
+        tk.Button(btn_frame, text="Cancel", bg=c["surface"], fg=c["text"],
+                  font=("Segoe UI", 10), activebackground=c["surface_hover"],
+                  relief="flat", padx=16, pady=6, command=cancel).pack(side=tk.LEFT, padx=6)
+
+    def _start_timer(self, total: int) -> None:
         self._initial_duration = total
         self.timer.start(total, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
         self._show_running()
@@ -435,6 +480,8 @@ class App(tk.Tk):
         self._hours_var.set(f"{h:02d}")
         self._minutes_var.set(f"{m:02d}")
         self._seconds_var.set(f"{s:02d}")
+        self._mode_var.set("countdown")
+        self._on_mode_change()
         self._on_start()
 
     def _on_pause_resume(self) -> None:
