@@ -169,11 +169,9 @@ class App(tk.Tk):
         tk.Label(self._idle_frame, text="Quick timers", font=("Segoe UI", 9),
                  bg=c["bg"], fg=c["text_muted"]).pack(pady=(4, 6))
 
-        preset_frame = tk.Frame(self._idle_frame, bg=c["bg"])
-        preset_frame.pack(padx=20)
-        for text, secs in [("15m", 900), ("30m", 1800), ("1h", 3600), ("2h", 7200)]:
-            ttk.Button(preset_frame, text=text, style="Preset.TButton",
-                       command=lambda s=secs: self._on_preset(s)).pack(side=tk.LEFT, padx=3)
+        self._preset_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        self._preset_frame.pack(padx=20)
+        self._refresh_presets()
 
         action_frame = tk.Frame(self._idle_frame, bg=c["bg"])
         action_frame.pack(pady=(10, 2))
@@ -292,6 +290,87 @@ class App(tk.Tk):
             elapsed = self._initial_duration - remaining
             pct = max(0, min(100, (elapsed / self._initial_duration) * 100))
             self._progress_var.set(pct)
+
+    def _refresh_presets(self) -> None:
+        c = self.theme.colors
+        for w in self._preset_frame.winfo_children():
+            w.destroy()
+
+        for text, secs in [("15m", 900), ("30m", 1800), ("1h", 3600), ("2h", 7200)]:
+            ttk.Button(self._preset_frame, text=text, style="Preset.TButton",
+                       command=lambda s=secs: self._on_preset(s)).pack(side=tk.LEFT, padx=3)
+
+        custom_presets: List[Dict] = self.settings.get("custom_presets", [])
+        for p in custom_presets:
+            label = p.get("label", "?")
+            total_s = p.get("hours", 0) * 3600 + p.get("minutes", 0) * 60 + p.get("seconds", 0)
+            if total_s <= 0:
+                continue
+            btn = ttk.Button(self._preset_frame, text=label, style="Accent.TButton",
+                             command=lambda s=total_s: self._on_preset(s))
+            btn.pack(side=tk.LEFT, padx=3)
+            btn.bind("<Button-3>", lambda ev, p=p: self._on_preset_context(ev, p))
+
+        btn = tk.Button(self._preset_frame, text="+", font=("Segoe UI", 10, "bold"),
+                        bg=c["surface"], fg=c["text_dim"], width=3,
+                        activebackground=c["surface_hover"], relief=tk.FLAT,
+                        command=self._on_save_preset)
+        btn.pack(side=tk.LEFT, padx=3)
+
+    def _on_save_preset(self) -> None:
+        if self._mode_var.get() != "countdown":
+            self._error_var.set("Presets only work in countdown mode")
+            return
+        try:
+            h = int(self._hours_var.get().strip() or "0")
+            m = int(self._minutes_var.get().strip() or "0")
+            s = int(self._seconds_var.get().strip() or "0")
+        except ValueError:
+            self._error_var.set("Enter a valid time first")
+            return
+        total = h * 3600 + m * 60 + s
+        if total <= 0:
+            self._error_var.set("Enter a time greater than zero")
+            return
+        if total > 86400:
+            self._error_var.set("Max preset is 24 hours")
+            return
+
+        if h > 0:
+            label = f"{h}h{m:02d}m" if m > 0 else f"{h}h"
+        elif m > 0:
+            label = f"{m}m{s:02d}s" if s > 0 else f"{m}m"
+        else:
+            label = f"{s}s"
+
+        presets: List[Dict] = list(self.settings.get("custom_presets", []))
+        if len(presets) >= 8:
+            self._error_var.set("Max 8 custom presets")
+            return
+        for p in presets:
+            if p.get("hours") == h and p.get("minutes") == m and p.get("seconds") == s:
+                self._error_var.set("Preset already exists")
+                return
+
+        presets.append({"label": label, "hours": h, "minutes": m, "seconds": s})
+        self.settings.set("custom_presets", presets)
+        self._refresh_presets()
+        self._error_var.set(f"Saved preset: {label}")
+
+    def _on_preset_context(self, event, preset: Dict) -> None:
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Delete preset",
+                         command=lambda: self._delete_preset(preset))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _delete_preset(self, preset: Dict) -> None:
+        presets: List[Dict] = list(self.settings.get("custom_presets", []))
+        presets = [p for p in presets if not (p.get("label") == preset.get("label")
+                                              and p.get("hours") == preset.get("hours")
+                                              and p.get("minutes") == preset.get("minutes")
+                                              and p.get("seconds") == preset.get("seconds"))]
+        self.settings.set("custom_presets", presets)
+        self._refresh_presets()
 
     def _on_start(self) -> None:
         if self._mode_var.get() == "schedule":
