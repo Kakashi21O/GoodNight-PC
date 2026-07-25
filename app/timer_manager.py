@@ -6,6 +6,8 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+MAX_DURATION_SECONDS = 7 * 24 * 3600  # 7 days
+
 
 class TimerState(enum.Enum):
     IDLE = "idle"
@@ -182,18 +184,27 @@ class TimerManager:
 
     def validate_duration(self, hours: str, minutes: str, seconds: str) -> tuple:
         errors = []
+
+        h_str = hours.strip() if hours else ""
+        m_str = minutes.strip() if minutes else ""
+        s_str = seconds.strip() if seconds else ""
+
+        if not h_str and not m_str and not s_str:
+            errors.append("Duration must be greater than zero")
+            return 0, errors
+
         try:
-            h = int(hours) if hours.strip() else 0
+            h = int(h_str) if h_str else 0
         except ValueError:
             errors.append("Invalid hours value")
             h = 0
         try:
-            m = int(minutes) if minutes.strip() else 0
+            m = int(m_str) if m_str else 0
         except ValueError:
             errors.append("Invalid minutes value")
             m = 0
         try:
-            s = int(seconds) if seconds.strip() else 0
+            s = int(s_str) if s_str else 0
         except ValueError:
             errors.append("Invalid seconds value")
             s = 0
@@ -211,4 +222,7 @@ class TimerManager:
                 errors.append("Duration must be greater than zero")
 
         total = h * 3600 + m * 60 + s
+        if not errors and total > MAX_DURATION_SECONDS:
+            errors.append(f"Maximum duration is 7 days ({MAX_DURATION_SECONDS // 3600} hours)")
+
         return total, errors
