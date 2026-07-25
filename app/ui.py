@@ -35,6 +35,8 @@ class App(tk.Tk):
         self._build_running_frame()
         self._warning_window: Optional[WarningWindow] = None
 
+        self._test_mode = shutdown_manager.mock_mode
+
         self._show_idle()
         self._update_action_labels()
         logger.info("Application started")
@@ -129,6 +131,12 @@ class App(tk.Tk):
                                       font=("Segoe UI", 9), foreground=self.colors["danger"],
                                       background=self.colors["bg"])
         self._error_label.pack(pady=(0, 5))
+
+        if self._test_mode:
+            test_banner = tk.Label(self._idle_frame, text="TEST MODE - Power actions are disabled",
+                                   font=("Segoe UI", 9, "italic"), bg="#7c3aed", fg="white",
+                                   padx=10, pady=3)
+            test_banner.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 5))
 
     def _build_running_frame(self) -> None:
         self._running_frame = tk.Frame(self, bg=self.colors["bg"])
