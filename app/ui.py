@@ -2,13 +2,15 @@ import logging
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional
+from typing import Optional, Dict
 
 from app.timer_manager import TimerManager, TimerState
 from app.power_manager import PowerManager, PowerAction, ACTION_LABELS, ACTION_VERBS
 from app.shutdown_manager import ShutdownManager
 from app.settings_manager import SettingsManager
+from app.theme import ThemeManager
 from app.utils import format_duration, format_shutdown_time, play_alert_sound, is_windows
+from app.version import APP_VERSION_STRING
 
 logger = logging.getLogger(__name__)
 
@@ -20,186 +22,221 @@ class App(tk.Tk):
         self.shutdown_manager = shutdown_manager
         self.power_manager = power_manager or PowerManager(mock_mode=shutdown_manager.mock_mode)
         self.settings = settings
+        self.theme = ThemeManager(settings.get("theme", "dark"))
         self.timer = TimerManager()
         self.timer.set_root(self)
         self._selected_action = PowerAction(settings.get("selected_action", "shutdown"))
+        self._test_mode = shutdown_manager.mock_mode
+        self._initial_duration: float = 0
 
-        self.title("Auto Shutdown Timer")
-        self.geometry("400x420")
-        self.resizable(False, False)
-        self.configure(bg="#1e1e2e")
+        self.title("GoodNight PC")
+        self.geometry("420x480")
+        self.minsize(380, 440)
+        self.configure(bg=self.theme.get("bg"))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_styles()
+        self._build_status_bar()
         self._build_idle_frame()
         self._build_running_frame()
         self._warning_window: Optional[WarningWindow] = None
-
-        self._test_mode = shutdown_manager.mock_mode
 
         self._show_idle()
         self._update_action_labels()
         logger.info("Application started")
 
     def _build_styles(self) -> None:
-        self.colors = {
-            "bg": "#1e1e2e",
-            "surface": "#2a2a3e",
-            "primary": "#7c3aed",
-            "primary_hover": "#6d28d9",
-            "danger": "#dc2626",
-            "danger_hover": "#b91c1c",
-            "success": "#16a34a",
-            "text": "#e2e8f0",
-            "text_dim": "#94a3b8",
-            "accent": "#f59e0b",
-        }
+        c = self.theme.colors
         style = ttk.Style(self)
         style.theme_use("clam")
-        style.configure(".", background=self.colors["bg"], foreground=self.colors["text"])
-        style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"), background=self.colors["bg"], foreground=self.colors["text"])
-        style.configure("Subtitle.TLabel", font=("Segoe UI", 12), background=self.colors["bg"], foreground=self.colors["text_dim"])
-        style.configure("Big.TLabel", font=("Consolas", 48, "bold"), background=self.colors["bg"], foreground=self.colors["accent"])
-        style.configure("Info.TLabel", font=("Segoe UI", 11), background=self.colors["bg"], foreground=self.colors["text_dim"])
-        style.configure("Input.TSpinbox", font=("Consolas", 24), fieldbackground=self.colors["surface"], foreground=self.colors["text"], insertcolor=self.colors["text"])
-        style.configure("Primary.TButton", font=("Segoe UI", 12, "bold"), background=self.colors["primary"], foreground="white", padding=(20, 10))
-        style.map("Primary.TButton", background=[("active", self.colors["primary_hover"])])
-        style.configure("Preset.TButton", font=("Segoe UI", 10), background=self.colors["surface"], foreground=self.colors["text"], padding=(10, 6))
-        style.map("Preset.TButton", background=[("active", self.colors["primary"])])
-        style.configure("Danger.TButton", font=("Segoe UI", 11, "bold"), background=self.colors["danger"], foreground="white", padding=(15, 8))
-        style.map("Danger.TButton", background=[("active", self.colors["danger_hover"])])
-        style.configure("Secondary.TButton", font=("Segoe UI", 10), background=self.colors["surface"], foreground=self.colors["text"], padding=(10, 6))
-        style.map("Secondary.TButton", background=[("active", self.colors["primary"])])
-        style.configure("Accent.TButton", font=("Segoe UI", 10, "bold"), background=self.colors["accent"], foreground="#1e1e2e", padding=(10, 6))
-        style.map("Accent.TButton", background=[("active", "#d97706")])
+        style.configure(".", background=c["bg"], foreground=c["text"])
+        style.configure("Title.TLabel", font=("Segoe UI", 16, "bold"), background=c["bg"], foreground=c["text"])
+        style.configure("Greeting.TLabel", font=("Segoe UI", 13), background=c["bg"], foreground=c["text_dim"])
+        style.configure("Subtitle.TLabel", font=("Segoe UI", 10), background=c["bg"], foreground=c["text_dim"])
+        style.configure("Big.TLabel", font=("Consolas", 42, "bold"), background=c["bg"], foreground=c["accent"])
+        style.configure("Huge.TLabel", font=("Consolas", 52, "bold"), background=c["bg"], foreground=c["warning"])
+        style.configure("Info.TLabel", font=("Segoe UI", 10), background=c["bg"], foreground=c["text_dim"])
+        style.configure("Status.TLabel", font=("Segoe UI", 8), background=c["surface"], foreground=c["text_muted"])
+        style.configure("Test.TLabel", font=("Segoe UI", 8, "italic"), background="#7c3aed", foreground="white")
+        style.configure("Primary.TButton", font=("Segoe UI", 11, "bold"), background=c["primary"], foreground="white", padding=(16, 8))
+        style.map("Primary.TButton", background=[("active", c["primary_hover"])])
+        style.configure("Preset.TButton", font=("Segoe UI", 9), background=c["surface"], foreground=c["text"], padding=(8, 5))
+        style.map("Preset.TButton", background=[("active", c["surface_hover"])])
+        style.configure("Danger.TButton", font=("Segoe UI", 10, "bold"), background=c["danger"], foreground="white", padding=(12, 7))
+        style.map("Danger.TButton", background=[("active", c["danger_hover"])])
+        style.configure("Secondary.TButton", font=("Segoe UI", 9), background=c["surface"], foreground=c["text"], padding=(8, 5))
+        style.map("Secondary.TButton", background=[("active", c["surface_hover"])])
+        style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"), background=c["accent"], foreground=c["bg"], padding=(8, 5))
+        style.map("Accent.TButton", background=[("active", c["accent_hover"])])
+        style.configure("Ghost.TButton", font=("Segoe UI", 9), background=c["bg"], foreground=c["text_dim"], padding=(6, 4))
+        style.map("Ghost.TButton", background=[("active", c["surface"])])
+        style.configure("Horizontal.TProgressbar", background=c["primary"], troughcolor=c["surface"], thickness=6)
+
+    def _build_status_bar(self) -> None:
+        c = self.theme.colors
+        self._status_frame = tk.Frame(self, bg=c["surface"], height=24)
+        self._status_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        self._status_frame.pack_propagate(False)
+        self._status_var = tk.StringVar(value="Ready")
+        tk.Label(self._status_frame, textvariable=self._status_var, font=("Segoe UI", 8),
+                 bg=c["surface"], fg=c["text_muted"]).pack(side=tk.LEFT, padx=8)
+        if self._test_mode:
+            tk.Label(self._status_frame, text="TEST MODE", font=("Segoe UI", 8, "bold"),
+                     bg="#7c3aed", fg="white", padx=6, pady=1).pack(side=tk.RIGHT, padx=4, pady=2)
 
     def _build_idle_frame(self) -> None:
-        self._idle_frame = tk.Frame(self, bg=self.colors["bg"])
+        c = self.theme.colors
+        self._idle_frame = tk.Frame(self, bg=c["bg"])
 
-        title = ttk.Label(self._idle_frame, text="Auto Shutdown Timer", style="Title.TLabel")
-        title.pack(pady=(20, 5))
+        greeting = self._get_greeting()
+        tk.Label(self._idle_frame, text=greeting, font=("Segoe UI", 13),
+                 bg=c["bg"], fg=c["text_dim"]).pack(pady=(18, 2))
 
-        subtitle = ttk.Label(self._idle_frame, text="Set Shutdown Timer", style="Subtitle.TLabel")
-        subtitle.pack(pady=(0, 15))
+        tk.Label(self._idle_frame, text="When should this PC power down?",
+                 font=("Segoe UI", 10), bg=c["bg"], fg=c["text_muted"]).pack(pady=(0, 12))
 
-        time_frame = tk.Frame(self._idle_frame, bg=self.colors["bg"])
+        time_frame = tk.Frame(self._idle_frame, bg=c["bg"])
         time_frame.pack(padx=20, pady=5)
 
         self._hours_var = tk.StringVar(value="00")
         self._minutes_var = tk.StringVar(value="30")
         self._seconds_var = tk.StringVar(value="00")
 
-        for var, label_text in [(self._hours_var, "Hours"), (self._minutes_var, "Minutes"), (self._seconds_var, "Seconds")]:
-            col_frame = tk.Frame(time_frame, bg=self.colors["bg"])
-            col_frame.pack(side=tk.LEFT, padx=5)
-            entry = tk.Entry(col_frame, textvariable=var, width=3, justify=tk.CENTER,
-                             font=("Consolas", 24), bg=self.colors["surface"], fg=self.colors["text"],
-                             insertbackground=self.colors["text"], relief=tk.FLAT, bd=0)
-            entry.pack()
-            entry.bind("<FocusIn>", lambda e, w=entry: w.select_range(0, tk.END))
-            lbl = ttk.Label(col_frame, text=label_text, style="Subtitle.TLabel")
-            lbl.pack()
-
-            sep = ttk.Label(time_frame, text=":", style="Big.TLabel")
-            if label_text != "Seconds":
-                sep.pack(side=tk.LEFT, padx=2)
+        for i, (var, label_text) in enumerate([(self._hours_var, "H"), (self._minutes_var, "M"), (self._seconds_var, "S")]):
+            col = tk.Frame(time_frame, bg=c["bg"])
+            col.pack(side=tk.LEFT, padx=4)
+            e = tk.Entry(col, textvariable=var, width=3, justify=tk.CENTER,
+                         font=("Consolas", 22), bg=c["input_bg"], fg=c["text"],
+                         insertbackground=c["text"], relief=tk.FLAT, bd=0,
+                         highlightthickness=1, highlightbackground=c["border"])
+            e.pack(ipady=4)
+            e.bind("<FocusIn>", lambda ev, w=e: w.select_range(0, tk.END))
+            tk.Label(col, text=label_text, font=("Segoe UI", 8), bg=c["bg"], fg=c["text_muted"]).pack()
+            if i < 2:
+                tk.Label(time_frame, text=":", font=("Consolas", 22, "bold"),
+                         bg=c["bg"], fg=c["text_dim"]).pack(side=tk.LEFT, padx=1)
 
         self._start_btn_var = tk.StringVar(value="Start Timer")
-        start_btn = ttk.Button(self._idle_frame, textvariable=self._start_btn_var,
-                               style="Primary.TButton", command=self._on_start)
-        start_btn.pack(pady=15)
+        ttk.Button(self._idle_frame, textvariable=self._start_btn_var,
+                   style="Primary.TButton", command=self._on_start).pack(pady=(14, 10))
 
-        preset_label = ttk.Label(self._idle_frame, text="Quick Timer", style="Subtitle.TLabel")
-        preset_label.pack(pady=(10, 5))
+        sep = tk.Frame(self._idle_frame, bg=c["border"], height=1)
+        sep.pack(fill=tk.X, padx=30, pady=4)
 
-        preset_frame = tk.Frame(self._idle_frame, bg=self.colors["bg"])
-        preset_frame.pack(padx=20, pady=5)
+        tk.Label(self._idle_frame, text="Quick timers", font=("Segoe UI", 9),
+                 bg=c["bg"], fg=c["text_muted"]).pack(pady=(4, 6))
 
-        for text, seconds in [("30 Min", 1800), ("1 Hour", 3600), ("2 Hours", 7200), ("3 Hours", 10800)]:
-            btn = ttk.Button(preset_frame, text=text, style="Preset.TButton",
-                             command=lambda s=seconds: self._on_preset(s))
-            btn.pack(side=tk.LEFT, padx=3)
+        preset_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        preset_frame.pack(padx=20)
+        for text, secs in [("15m", 900), ("30m", 1800), ("1h", 3600), ("2h", 7200)]:
+            ttk.Button(preset_frame, text=text, style="Preset.TButton",
+                       command=lambda s=secs: self._on_preset(s)).pack(side=tk.LEFT, padx=3)
 
-        bottom_frame = tk.Frame(self._idle_frame, bg=self.colors["bg"])
-        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=10)
-        settings_btn = ttk.Button(bottom_frame, text="Settings", style="Secondary.TButton",
-                                  command=self._on_settings)
-        settings_btn.pack(side=tk.RIGHT)
+        action_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        action_frame.pack(pady=(10, 2))
+        tk.Label(action_frame, text="Action", font=("Segoe UI", 9),
+                 bg=c["bg"], fg=c["text_muted"]).pack(side=tk.LEFT, padx=(20, 6))
+        self._action_var = tk.StringVar(value=ACTION_LABELS.get(self._selected_action, "Shut Down"))
+        actions_list = [ACTION_LABELS[a] for a in self.power_manager.get_available_actions()]
+        self._action_menu = tk.OptionMenu(action_frame, self._action_var, *actions_list,
+                                          command=self._on_action_change)
+        self._action_menu.configure(font=("Segoe UI", 9), bg=c["surface"], fg=c["text"],
+                                    activebackground=c["surface_hover"], highlightthickness=0,
+                                    relief=tk.FLAT)
+        self._action_menu["menu"].configure(font=("Segoe UI", 9), bg=c["surface"], fg=c["text"])
+        self._action_menu.pack()
 
         self._error_var = tk.StringVar(value="")
-        self._error_label = ttk.Label(self._idle_frame, textvariable=self._error_var,
-                                      font=("Segoe UI", 9), foreground=self.colors["danger"],
-                                      background=self.colors["bg"])
-        self._error_label.pack(pady=(0, 5))
+        tk.Label(self._idle_frame, textvariable=self._error_var, font=("Segoe UI", 8),
+                 bg=c["bg"], fg=c["danger"]).pack(pady=(4, 0))
 
-        if self._test_mode:
-            test_banner = tk.Label(self._idle_frame, text="TEST MODE - Power actions are disabled",
-                                   font=("Segoe UI", 9, "italic"), bg="#7c3aed", fg="white",
-                                   padx=10, pady=3)
-            test_banner.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 5))
+        bottom = tk.Frame(self._idle_frame, bg=c["bg"])
+        bottom.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=6)
+        ttk.Button(bottom, text="Settings", style="Ghost.TButton",
+                   command=self._on_settings).pack(side=tk.RIGHT)
 
     def _build_running_frame(self) -> None:
-        self._running_frame = tk.Frame(self, bg=self.colors["bg"])
+        c = self.theme.colors
+        self._running_frame = tk.Frame(self, bg=c["bg"])
 
-        title = ttk.Label(self._running_frame, text="Auto Shutdown Timer", style="Title.TLabel")
-        title.pack(pady=(20, 5))
+        tk.Label(self._running_frame, text="GoodNight PC", font=("Segoe UI", 14, "bold"),
+                 bg=c["bg"], fg=c["text"]).pack(pady=(14, 2))
 
         self._action_label_var = tk.StringVar(value="SHUTDOWN IN")
-        ttk.Label(self._running_frame, textvariable=self._action_label_var, style="Subtitle.TLabel").pack(pady=(10, 5))
+        tk.Label(self._running_frame, textvariable=self._action_label_var,
+                 font=("Segoe UI", 10), bg=c["bg"], fg=c["text_dim"]).pack(pady=(8, 4))
 
         self._countdown_var = tk.StringVar(value="00:00:00")
-        countdown_label = ttk.Label(self._running_frame, textvariable=self._countdown_var, style="Big.TLabel")
-        countdown_label.pack(pady=5)
+        tk.Label(self._running_frame, textvariable=self._countdown_var,
+                 font=("Consolas", 42, "bold"), bg=c["bg"], fg=c["accent"]).pack(pady=4)
 
         self._schedule_var = tk.StringVar(value="")
-        schedule_label = ttk.Label(self._running_frame, textvariable=self._schedule_var, style="Info.TLabel")
-        schedule_label.pack(pady=(5, 20))
+        tk.Label(self._running_frame, textvariable=self._schedule_var,
+                 font=("Segoe UI", 10), bg=c["bg"], fg=c["text_dim"]).pack(pady=(2, 8))
 
+        self._progress_var = tk.DoubleVar(value=0)
+        self._progress_bar = ttk.Progressbar(self._running_frame, variable=self._progress_var,
+                                             maximum=100, mode="determinate",
+                                             style="Horizontal.TProgressbar")
+        self._progress_bar.pack(fill=tk.X, padx=50, pady=(0, 12))
+
+        btn_row1 = tk.Frame(self._running_frame, bg=c["bg"])
+        btn_row1.pack(fill=tk.X, padx=40, pady=2)
         self._pause_var = tk.StringVar(value="Pause")
-        pause_btn = ttk.Button(self._running_frame, textvariable=self._pause_var, style="Secondary.TButton",
-                               command=self._on_pause_resume)
-        pause_btn.pack(side=tk.LEFT, padx=(40, 5), pady=5)
+        ttk.Button(btn_row1, textvariable=self._pause_var, style="Secondary.TButton",
+                   command=self._on_pause_resume).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(btn_row1, text="+30 min", style="Accent.TButton",
+                   command=self._on_add_30).pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(3, 0))
 
-        add_btn = ttk.Button(self._running_frame, text="+30 Minutes", style="Accent.TButton",
-                             command=self._on_add_30)
-        add_btn.pack(side=tk.RIGHT, padx=(5, 40), pady=5)
+        btn_row2 = tk.Frame(self._running_frame, bg=c["bg"])
+        btn_row2.pack(fill=tk.X, padx=40, pady=4)
+        ttk.Button(btn_row2, text="Change", style="Secondary.TButton",
+                   command=self._on_change_timer).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(btn_row2, text="Cancel", style="Danger.TButton",
+                   command=self._on_cancel).pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(3, 0))
 
-        btn_frame = tk.Frame(self._running_frame, bg=self.colors["bg"])
-        btn_frame.pack(fill=tk.X, padx=40, pady=(10, 5))
-
-        change_btn = ttk.Button(btn_frame, text="Change Timer", style="Secondary.TButton",
-                                command=self._on_change_timer)
-        change_btn.pack(side=tk.LEFT, padx=(0, 5), expand=True, fill=tk.X)
-
-        cancel_btn = ttk.Button(btn_frame, text="Cancel", style="Danger.TButton",
-                                command=self._on_cancel)
-        cancel_btn.pack(side=tk.RIGHT, padx=(5, 0), expand=True, fill=tk.X)
+    def _get_greeting(self) -> str:
+        hour = time.localtime().tm_hour
+        if hour < 6:
+            return "Good night"
+        elif hour < 12:
+            return "Good morning"
+        elif hour < 17:
+            return "Good afternoon"
+        elif hour < 21:
+            return "Good evening"
+        return "Good night"
 
     def _show_idle(self) -> None:
         self._running_frame.pack_forget()
         self._idle_frame.pack(fill=tk.BOTH, expand=True)
         self._error_var.set("")
+        self._status_var.set("Ready")
 
     def _show_running(self) -> None:
         self._idle_frame.pack_forget()
         self._running_frame.pack(fill=tk.BOTH, expand=True)
         self._pause_var.set("Pause")
+        self._status_var.set("Timer active")
+
+    def _on_action_change(self, selection: str) -> None:
+        for action, label in ACTION_LABELS.items():
+            if label == selection:
+                self._selected_action = action
+                self._update_action_labels()
+                self.settings.set("selected_action", action.value)
+                break
 
     def _update_action_labels(self) -> None:
         label = ACTION_LABELS.get(self._selected_action, "Shut Down")
         self._start_btn_var.set(f"Start {label}")
-        verb = "SHUTDOWN"
-        if self._selected_action == PowerAction.SLEEP:
-            verb = "SLEEP"
-        elif self._selected_action == PowerAction.HIBERNATE:
-            verb = "HIBERNATE"
-        elif self._selected_action == PowerAction.RESTART:
-            verb = "RESTART"
-        elif self._selected_action == PowerAction.LOCK:
-            verb = "LOCK"
-        elif self._selected_action == PowerAction.SIGN_OUT:
-            verb = "SIGN OUT"
-        self._action_label_var.set(f"{verb} IN")
+        self._action_label_var.set(f"{self._selected_action.value.upper()} IN")
+
+    def _update_progress(self, remaining: float) -> None:
+        if self._initial_duration > 0:
+            elapsed = self._initial_duration - remaining
+            pct = max(0, min(100, (elapsed / self._initial_duration) * 100))
+            self._progress_var.set(pct)
 
     def _on_start(self) -> None:
         total, errors = self.timer.validate_duration(
@@ -210,34 +247,38 @@ class App(tk.Tk):
             return
 
         self._error_var.set("")
+        self._initial_duration = total
         self.timer.start(total, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
         self._show_running()
         self._update_countdown(total)
         self._update_schedule(total)
-        logger.info("Timer started: %s", format_duration(total))
+        self._update_progress(total)
+        label = ACTION_LABELS.get(self._selected_action, "Shut Down")
+        logger.info("Timer started: %s (%s)", format_duration(total), label)
 
     def _on_preset(self, seconds: int) -> None:
-        self._hours_var.set("00")
-        self._minutes_var.set(f"{seconds // 60:02d}" if seconds < 3600 else f"{seconds // 3600:02d}")
-        self._seconds_var.set("00")
-        if seconds >= 3600:
-            h = seconds // 3600
-            m = (seconds % 3600) // 60
-            self._hours_var.set(f"{h:02d}")
-            self._minutes_var.set(f"{m:02d}")
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        self._hours_var.set(f"{h:02d}")
+        self._minutes_var.set(f"{m:02d}")
+        self._seconds_var.set(f"{s:02d}")
         self._on_start()
 
     def _on_pause_resume(self) -> None:
         if self.timer.state == TimerState.RUNNING:
             self.timer.pause()
             self._pause_var.set("Resume")
+            self._status_var.set("Paused")
         elif self.timer.state == TimerState.PAUSED:
             self.timer.resume()
             self._pause_var.set("Pause")
+            self._status_var.set("Timer active")
 
     def _on_add_30(self) -> None:
         if self.timer.state == TimerState.RUNNING:
             self.timer.add_time(1800)
+            self._initial_duration += 1800
             remaining = self.timer.get_remaining()
             self._update_countdown(remaining)
             self._update_schedule(remaining)
@@ -261,7 +302,7 @@ class App(tk.Tk):
         self.timer.cancel()
         self.power_manager.abort()
         self._show_idle()
-        self._error_var.set("Shutdown cancelled")
+        self._error_var.set("Timer cancelled")
         logger.info("Timer cancelled")
 
     def _on_timer_expired(self, session_id: int) -> None:
@@ -276,8 +317,7 @@ class App(tk.Tk):
             return
         if self.timer.state == TimerState.RUNNING:
             self._update_countdown(remaining)
-        elif self.timer.state == TimerState.WARNING:
-            pass
+            self._update_progress(remaining)
 
     def _update_countdown(self, remaining: float) -> None:
         self._countdown_var.set(format_duration(int(remaining)))
@@ -303,14 +343,16 @@ class App(tk.Tk):
             self.timer.cancel()
             self.power_manager.abort()
             self._show_idle()
-            self._error_var.set("Shutdown cancelled")
+            self._error_var.set("Timer cancelled")
         elif action == "postpone":
             self.timer.cancel()
             self.timer.start(1800, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
+            self._initial_duration = 1800
             self._show_running()
             self._update_countdown(1800)
             self._update_schedule(1800)
-            self._error_var.set("Shutdown postponed")
+            self._update_progress(1800)
+            self._error_var.set("Postponed by 30 minutes")
         elif action == "new_timer":
             self.timer.cancel()
             self.power_manager.abort()
@@ -320,7 +362,7 @@ class App(tk.Tk):
             self._show_idle()
 
     def _on_settings(self) -> None:
-        SettingsDialog(self, self.settings)
+        SettingsDialog(self, self.settings, self.theme)
 
     def _on_close(self) -> None:
         if self._warning_window is not None:
@@ -332,7 +374,7 @@ class App(tk.Tk):
 
         if self.timer.state in (TimerState.RUNNING, TimerState.PAUSED):
             if messagebox.askyesno("Active Timer",
-                                   "A shutdown timer is active. Cancel timer and exit?"):
+                                   "A timer is active. Cancel and exit?"):
                 self.timer.cancel()
                 self.power_manager.abort()
                 logger.info("Application closed (timer cancelled)")
@@ -354,73 +396,53 @@ class WarningWindow(tk.Toplevel):
         self.parent_app = parent
         self.timer = timer
         self.power_manager = power_manager
-        self.shutdown_manager = power_manager
         self.settings = settings
         self.on_done = on_done
         self._session_id = timer.session_id
         self._warning_duration = settings.get("warning_duration", 20)
         self._remaining = self._warning_duration
-        self._closed_safely = False
 
-        action_label = ACTION_LABELS.get(self.parent_app._selected_action, "Shut Down")
+        c = parent.theme.colors
+        action_label = ACTION_LABELS.get(parent._selected_action, "Shut Down")
+        verb = ACTION_VERBS.get(parent._selected_action, "shut down")
+
         self.title(f"{action_label} Ready")
-        self.geometry("380x400")
+        self.geometry("380x420")
         self.resizable(False, False)
-        self.configure(bg="#1e1e2e")
+        self.configure(bg=c["bg"])
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         if settings.get("always_on_top_warning", True):
             self.attributes("-topmost", True)
-
         self.grab_set()
         self.focus_force()
 
-        bg = "#1e1e2e"
-        self.configure(bg=bg)
-
-        action_label = ACTION_LABELS.get(self.parent_app._selected_action, "Shut Down")
-        title = tk.Label(self, text=f"{action_label} Ready", font=("Segoe UI", 20, "bold"),
-                         bg=bg, fg="#dc2626")
-        title.pack(pady=(20, 5))
-
-        verb = ACTION_VERBS.get(self.parent_app._selected_action, "shut down")
-        subtitle = tk.Label(self, text=f"Your PC will {verb} in", font=("Segoe UI", 12),
-                            bg=bg, fg="#e2e8f0")
-        subtitle.pack(pady=(5, 5))
+        tk.Label(self, text=f"{action_label} Ready", font=("Segoe UI", 18, "bold"),
+                 bg=c["bg"], fg=c["danger"]).pack(pady=(20, 4))
+        tk.Label(self, text=f"Your PC will {verb} in", font=("Segoe UI", 11),
+                 bg=c["bg"], fg=c["text"]).pack(pady=(4, 4))
 
         self._countdown_var = tk.StringVar(value=str(self._warning_duration))
-        countdown_label = tk.Label(self, textvariable=self._countdown_var,
-                                   font=("Consolas", 56, "bold"), bg=bg, fg="#f59e0b")
-        countdown_label.pack(pady=5)
+        tk.Label(self, textvariable=self._countdown_var,
+                 font=("Consolas", 52, "bold"), bg=c["bg"], fg=c["warning"]).pack(pady=4)
+        tk.Label(self, text="seconds", font=("Segoe UI", 11), bg=c["bg"], fg=c["text_dim"]).pack()
+        tk.Label(self, text="Save your work now.", font=("Segoe UI", 10, "italic"),
+                 bg=c["bg"], fg=c["text"]).pack(pady=(8, 14))
 
-        sec_label = tk.Label(self, text="seconds", font=("Segoe UI", 12),
-                             bg=bg, fg="#94a3b8")
-        sec_label.pack(pady=(0, 5))
+        grid = tk.Frame(self, bg=c["bg"])
+        grid.pack(fill=tk.X, padx=20, pady=(0, 14))
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=1)
 
-        warn_label = tk.Label(self, text="Save your work now.", font=("Segoe UI", 11, "italic"),
-                              bg=bg, fg="#e2e8f0")
-        warn_label.pack(pady=(0, 15))
-
-        btn_frame = tk.Frame(self, bg=bg)
-        btn_frame.pack(fill=tk.X, padx=20)
-
-        style_cfg = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "padx": 10, "pady": 8}
-
-        cancel_btn = tk.Button(btn_frame, text="Cancel Shutdown", bg="#16a34a", fg="white",
-                               activebackground="#15803d", command=self._on_cancel, **style_cfg)
-        cancel_btn.pack(fill=tk.X, pady=3)
-
-        postpone_btn = tk.Button(btn_frame, text="+30 Minutes", bg="#7c3aed", fg="white",
-                                 activebackground="#6d28d9", command=self._on_postpone, **style_cfg)
-        postpone_btn.pack(fill=tk.X, pady=3)
-
-        new_timer_btn = tk.Button(btn_frame, text="Set New Timer", bg="#2563eb", fg="white",
-                                  activebackground="#1d4ed8", command=self._on_new_timer, **style_cfg)
-        new_timer_btn.pack(fill=tk.X, pady=3)
-
-        shutdown_btn = tk.Button(btn_frame, text="Shut Down Now", bg="#dc2626", fg="white",
-                                 activebackground="#b91c1c", command=self._on_shutdown_now, **style_cfg)
-        shutdown_btn.pack(fill=tk.X, pady=3)
+        btn_style = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "padx": 8, "pady": 8}
+        tk.Button(grid, text="Cancel", bg=c["success"], fg="white",
+                  activebackground=c["success_hover"], command=self._on_cancel, **btn_style).grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=2)
+        tk.Button(grid, text="+30 min", bg=c["primary"], fg="white",
+                  activebackground=c["primary_hover"], command=self._on_postpone, **btn_style).grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=2)
+        tk.Button(grid, text="New Timer", bg="#2563eb", fg="white",
+                  activebackground="#1d4ed8", command=self._on_new_timer, **btn_style).grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=2)
+        tk.Button(grid, text=action_label + " Now", bg=c["danger"], fg="white",
+                  activebackground=c["danger_hover"], command=self._on_action_now, **btn_style).grid(row=1, column=1, sticky="ew", padx=(3, 0), pady=2)
 
         play_alert_sound(settings.get("alert_sound_enabled", True))
         self._tick()
@@ -428,107 +450,131 @@ class WarningWindow(tk.Toplevel):
     def _tick(self) -> None:
         if self._remaining <= 0:
             self.power_manager.execute(self.parent_app._selected_action, delay_seconds=10)
-            self._closed_safely = True
             self.on_done("shutdown", self._session_id)
             self.destroy()
             return
-
         self._countdown_var.set(str(int(self._remaining)))
         self._remaining -= 1
         self.after(1000, self._tick)
 
     def _on_cancel(self) -> None:
-        self._closed_safely = True
         self.on_done("cancel", self._session_id)
         self.destroy()
 
     def _on_postpone(self) -> None:
-        self._closed_safely = True
         self.on_done("postpone", self._session_id)
         self.destroy()
 
     def _on_new_timer(self) -> None:
-        self._closed_safely = True
         self.on_done("new_timer", self._session_id)
         self.destroy()
 
-    def _on_shutdown_now(self) -> None:
+    def _on_action_now(self) -> None:
+        action_label = ACTION_LABELS.get(self.parent_app._selected_action, "Shut Down")
         if self.settings.get("confirm_before_shutdown", True):
-            from tkinter import messagebox
-            if not messagebox.askyesno("Confirm Shutdown", "Shut down your PC now?"):
+            if not messagebox.askyesno(f"Confirm {action_label}", f"{action_label} your PC now?"):
                 return
-        self._closed_safely = True
         self.power_manager.execute_immediate(self.parent_app._selected_action)
         self.on_done("shutdown", self._session_id)
         self.destroy()
 
     def _on_close(self) -> None:
-        self._closed_safely = True
         self.on_done("cancel", self._session_id)
         self.destroy()
 
 
 class SettingsDialog(tk.Toplevel):
-    def __init__(self, parent, settings: SettingsManager):
+    def __init__(self, parent, settings: SettingsManager, theme: ThemeManager):
         super().__init__(parent)
         self.settings = settings
+        self.theme = theme
+        c = theme.colors
         self.title("Settings")
-        self.geometry("350x350")
+        self.geometry("380x420")
         self.resizable(False, False)
-        self.configure(bg="#1e1e2e")
+        self.configure(bg=c["bg"])
         self.transient(parent)
         self.grab_set()
 
-        bg = "#1e1e2e"
+        tk.Label(self, text="Settings", font=("Segoe UI", 15, "bold"),
+                 bg=c["bg"], fg=c["text"]).pack(pady=(14, 8))
 
-        tk.Label(self, text="Settings", font=("Segoe UI", 16, "bold"),
-                 bg=bg, fg="#e2e8f0").pack(pady=(15, 10))
+        canvas = tk.Canvas(self, bg=c["bg"], highlightthickness=0)
+        scrollbar = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=c["bg"])
+        scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0))
+        scrollbar.pack(side="right", fill="y")
 
-        frame = tk.Frame(self, bg=bg)
-        frame.pack(fill=tk.X, padx=20)
+        f = scroll_frame
 
+        tk.Label(f, text="Warning", font=("Segoe UI", 10, "bold"),
+                 bg=c["bg"], fg=c["text_dim"]).pack(anchor=tk.W, pady=(8, 2))
         self._warning_var = tk.IntVar(value=settings.get("warning_duration", 20))
-        tk.Label(frame, text="Warning countdown (seconds):", bg=bg, fg="#e2e8f0",
-                 font=("Segoe UI", 10)).pack(anchor=tk.W, pady=(5, 0))
-        tk.Spinbox(frame, from_=5, to=120, textvariable=self._warning_var, width=5,
-                   font=("Consolas", 12), bg="#2a2a3e", fg="#e2e8f0",
-                   insertbackground="#e2e8f0").pack(anchor=tk.W, pady=2)
+        tk.Label(f, text="Countdown (seconds):", bg=c["bg"], fg=c["text"],
+                 font=("Segoe UI", 9)).pack(anchor=tk.W)
+        tk.Spinbox(f, from_=5, to=300, textvariable=self._warning_var, width=5,
+                   font=("Consolas", 11), bg=c["input_bg"], fg=c["text"],
+                   insertbackground=c["text"], relief=tk.FLAT,
+                   highlightthickness=1, highlightbackground=c["border"]).pack(anchor=tk.W, pady=2)
 
         self._sound_var = tk.BooleanVar(value=settings.get("alert_sound_enabled", True))
-        tk.Checkbutton(frame, text="Alert sound", variable=self._sound_var, bg=bg,
-                       fg="#e2e8f0", selectcolor="#2a2a3e", font=("Segoe UI", 10),
-                       activebackground=bg).pack(anchor=tk.W, pady=5)
+        tk.Checkbutton(f, text="Alert sound", variable=self._sound_var, bg=c["bg"],
+                       fg=c["text"], selectcolor=c["input_bg"], font=("Segoe UI", 9),
+                       activebackground=c["bg"]).pack(anchor=tk.W, pady=3)
 
         self._topmost_var = tk.BooleanVar(value=settings.get("always_on_top_warning", True))
-        tk.Checkbutton(frame, text="Always on top (warning)", variable=self._topmost_var, bg=bg,
-                       fg="#e2e8f0", selectcolor="#2a2a3e", font=("Segoe UI", 10),
-                       activebackground=bg).pack(anchor=tk.W, pady=5)
+        tk.Checkbutton(f, text="Always on top (warning)", variable=self._topmost_var, bg=c["bg"],
+                       fg=c["text"], selectcolor=c["input_bg"], font=("Segoe UI", 9),
+                       activebackground=c["bg"]).pack(anchor=tk.W, pady=3)
 
         self._confirm_var = tk.BooleanVar(value=settings.get("confirm_before_shutdown", True))
-        tk.Checkbutton(frame, text="Confirm before immediate shutdown", variable=self._confirm_var, bg=bg,
-                       fg="#e2e8f0", selectcolor="#2a2a3e", font=("Segoe UI", 10),
-                       activebackground=bg).pack(anchor=tk.W, pady=5)
+        tk.Checkbutton(f, text="Confirm before action", variable=self._confirm_var, bg=c["bg"],
+                       fg=c["text"], selectcolor=c["input_bg"], font=("Segoe UI", 9),
+                       activebackground=c["bg"]).pack(anchor=tk.W, pady=3)
 
-        btn_frame = tk.Frame(self, bg=bg)
-        btn_frame.pack(fill=tk.X, padx=20, pady=15)
+        tk.Label(f, text="Appearance", font=("Segoe UI", 10, "bold"),
+                 bg=c["bg"], fg=c["text_dim"]).pack(anchor=tk.W, pady=(12, 2))
+        self._theme_var = tk.StringVar(value=settings.get("theme", "dark"))
+        theme_frame = tk.Frame(f, bg=c["bg"])
+        theme_frame.pack(anchor=tk.W, pady=2)
+        for t in ["dark", "light"]:
+            tk.Radiobutton(theme_frame, text=t.capitalize(), variable=self._theme_var,
+                           value=t, bg=c["bg"], fg=c["text"], selectcolor=c["input_bg"],
+                           font=("Segoe UI", 9), activebackground=c["bg"]).pack(side=tk.LEFT, padx=(0, 10))
 
-        tk.Button(btn_frame, text="Save", bg="#7c3aed", fg="white", font=("Segoe UI", 10, "bold"),
-                  activebackground="#6d28d9", relief="flat", command=self._save).pack(side=tk.LEFT, padx=(0, 10))
-        tk.Button(btn_frame, text="Cancel", bg="#2a2a3e", fg="#e2e8f0", font=("Segoe UI", 10),
-                  activebackground="#3a3a4e", relief="flat", command=self.destroy).pack(side=tk.LEFT)
-        tk.Button(btn_frame, text="Reset Defaults", bg="#dc2626", fg="white", font=("Segoe UI", 9),
-                  activebackground="#b91c1c", relief="flat", command=self._reset).pack(side=tk.RIGHT)
+        tk.Label(f, text="About", font=("Segoe UI", 10, "bold"),
+                 bg=c["bg"], fg=c["text_dim"]).pack(anchor=tk.W, pady=(12, 2))
+        tk.Label(f, text=APP_VERSION_STRING, bg=c["bg"], fg=c["text_dim"],
+                 font=("Segoe UI", 9)).pack(anchor=tk.W)
+
+        btn_frame = tk.Frame(self, bg=c["bg"])
+        btn_frame.pack(fill=tk.X, padx=20, pady=12)
+        tk.Button(btn_frame, text="Save", bg=c["primary"], fg="white",
+                  font=("Segoe UI", 10, "bold"), activebackground=c["primary_hover"],
+                  relief="flat", command=self._save).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(btn_frame, text="Cancel", bg=c["surface"], fg=c["text"],
+                  font=("Segoe UI", 9), activebackground=c["surface_hover"],
+                  relief="flat", command=self.destroy).pack(side=tk.LEFT)
+        tk.Button(btn_frame, text="Reset", bg=c["danger"], fg="white",
+                  font=("Segoe UI", 9), activebackground=c["danger_hover"],
+                  relief="flat", command=self._reset).pack(side=tk.RIGHT)
 
     def _save(self) -> None:
         self.settings.set("warning_duration", self._warning_var.get())
         self.settings.set("alert_sound_enabled", self._sound_var.get())
         self.settings.set("always_on_top_warning", self._topmost_var.get())
         self.settings.set("confirm_before_shutdown", self._confirm_var.get())
+        self.settings.set("theme", self._theme_var.get())
         self.destroy()
 
     def _reset(self) -> None:
-        self.settings.reset()
-        self._warning_var.set(20)
-        self._sound_var.set(True)
-        self._topmost_var.set(True)
-        self._confirm_var.set(True)
+        if messagebox.askyesno("Reset Settings", "Restore all settings to defaults?"):
+            self.settings.reset()
+            self._warning_var.set(20)
+            self._sound_var.set(True)
+            self._topmost_var.set(True)
+            self._confirm_var.set(True)
+            self._theme_var.set("dark")
