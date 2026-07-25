@@ -6,6 +6,7 @@ import socket
 import traceback
 
 from app.shutdown_manager import ShutdownManager
+from app.power_manager import PowerManager
 from app.settings_manager import SettingsManager
 from app.version import APP_VERSION_STRING
 
@@ -62,6 +63,7 @@ def main() -> None:
 
     settings = SettingsManager()
     shutdown_manager = ShutdownManager(mock_mode=mock_mode)
+    power_manager = PowerManager(mock_mode=mock_mode)
 
     def handle_exception(exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
@@ -83,7 +85,7 @@ def main() -> None:
     sys.excepthook = handle_exception
 
     from app.ui import App
-    app = App(shutdown_manager, settings)
+    app = App(shutdown_manager, settings, power_manager=power_manager)
     app.mainloop()
 
     logger.info("Application exited")

@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox
 from typing import Optional
 
 from app.timer_manager import TimerManager, TimerState
+from app.power_manager import PowerManager, PowerAction, ACTION_LABELS, ACTION_VERBS
 from app.shutdown_manager import ShutdownManager
 from app.settings_manager import SettingsManager
 from app.utils import format_duration, format_shutdown_time, play_alert_sound, is_windows
@@ -13,12 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 class App(tk.Tk):
-    def __init__(self, shutdown_manager: ShutdownManager, settings: SettingsManager):
+    def __init__(self, shutdown_manager: ShutdownManager, settings: SettingsManager,
+                 power_manager: Optional[PowerManager] = None):
         super().__init__()
         self.shutdown_manager = shutdown_manager
+        self.power_manager = power_manager or PowerManager(mock_mode=shutdown_manager.mock_mode)
         self.settings = settings
         self.timer = TimerManager()
         self.timer.set_root(self)
+        self._selected_action = PowerAction(settings.get("selected_action", "shutdown"))
 
         self.title("Auto Shutdown Timer")
         self.geometry("400x420")
@@ -31,7 +35,10 @@ class App(tk.Tk):
         self._build_running_frame()
         self._warning_window: Optional[WarningWindow] = None
 
+        self._test_mode = shutdown_manager.mock_mode
+
         self._show_idle()
+        self._update_action_labels()
         logger.info("Application started")
 
     def _build_styles(self) -> None:
@@ -97,7 +104,8 @@ class App(tk.Tk):
             if label_text != "Seconds":
                 sep.pack(side=tk.LEFT, padx=2)
 
-        start_btn = ttk.Button(self._idle_frame, text="Start Shutdown Timer",
+        self._start_btn_var = tk.StringVar(value="Start Timer")
+        start_btn = ttk.Button(self._idle_frame, textvariable=self._start_btn_var,
                                style="Primary.TButton", command=self._on_start)
         start_btn.pack(pady=15)
 
@@ -124,13 +132,20 @@ class App(tk.Tk):
                                       background=self.colors["bg"])
         self._error_label.pack(pady=(0, 5))
 
+        if self._test_mode:
+            test_banner = tk.Label(self._idle_frame, text="TEST MODE - Power actions are disabled",
+                                   font=("Segoe UI", 9, "italic"), bg="#7c3aed", fg="white",
+                                   padx=10, pady=3)
+            test_banner.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 5))
+
     def _build_running_frame(self) -> None:
         self._running_frame = tk.Frame(self, bg=self.colors["bg"])
 
         title = ttk.Label(self._running_frame, text="Auto Shutdown Timer", style="Title.TLabel")
         title.pack(pady=(20, 5))
 
-        ttk.Label(self._running_frame, text="SHUTDOWN IN", style="Subtitle.TLabel").pack(pady=(10, 5))
+        self._action_label_var = tk.StringVar(value="SHUTDOWN IN")
+        ttk.Label(self._running_frame, textvariable=self._action_label_var, style="Subtitle.TLabel").pack(pady=(10, 5))
 
         self._countdown_var = tk.StringVar(value="00:00:00")
         countdown_label = ttk.Label(self._running_frame, textvariable=self._countdown_var, style="Big.TLabel")
@@ -156,7 +171,7 @@ class App(tk.Tk):
                                 command=self._on_change_timer)
         change_btn.pack(side=tk.LEFT, padx=(0, 5), expand=True, fill=tk.X)
 
-        cancel_btn = ttk.Button(btn_frame, text="Cancel Shutdown", style="Danger.TButton",
+        cancel_btn = ttk.Button(btn_frame, text="Cancel", style="Danger.TButton",
                                 command=self._on_cancel)
         cancel_btn.pack(side=tk.RIGHT, padx=(5, 0), expand=True, fill=tk.X)
 
@@ -169,6 +184,22 @@ class App(tk.Tk):
         self._idle_frame.pack_forget()
         self._running_frame.pack(fill=tk.BOTH, expand=True)
         self._pause_var.set("Pause")
+
+    def _update_action_labels(self) -> None:
+        label = ACTION_LABELS.get(self._selected_action, "Shut Down")
+        self._start_btn_var.set(f"Start {label}")
+        verb = "SHUTDOWN"
+        if self._selected_action == PowerAction.SLEEP:
+            verb = "SLEEP"
+        elif self._selected_action == PowerAction.HIBERNATE:
+            verb = "HIBERNATE"
+        elif self._selected_action == PowerAction.RESTART:
+            verb = "RESTART"
+        elif self._selected_action == PowerAction.LOCK:
+            verb = "LOCK"
+        elif self._selected_action == PowerAction.SIGN_OUT:
+            verb = "SIGN OUT"
+        self._action_label_var.set(f"{verb} IN")
 
     def _on_start(self) -> None:
         total, errors = self.timer.validate_duration(
@@ -216,7 +247,7 @@ class App(tk.Tk):
         if self.timer.state in (TimerState.RUNNING, TimerState.PAUSED):
             remaining = self.timer.get_remaining()
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             h = int(remaining) // 3600
             m = (int(remaining) % 3600) // 60
             s = int(remaining) % 60
@@ -228,7 +259,7 @@ class App(tk.Tk):
 
     def _on_cancel(self) -> None:
         self.timer.cancel()
-        self.shutdown_manager.abort_shutdown()
+        self.power_manager.abort()
         self._show_idle()
         self._error_var.set("Shutdown cancelled")
         logger.info("Timer cancelled")
@@ -258,7 +289,7 @@ class App(tk.Tk):
     def _show_warning(self) -> None:
         if self._warning_window is not None:
             return
-        self._warning_window = WarningWindow(self, self.timer, self.shutdown_manager, self.settings,
+        self._warning_window = WarningWindow(self, self.timer, self.power_manager, self.settings,
                                               on_done=self._on_warning_done)
 
     def _on_warning_done(self, action: str, session_id: int) -> None:
@@ -270,7 +301,7 @@ class App(tk.Tk):
 
         if action == "cancel":
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             self._show_idle()
             self._error_var.set("Shutdown cancelled")
         elif action == "postpone":
@@ -282,7 +313,7 @@ class App(tk.Tk):
             self._error_var.set("Shutdown postponed")
         elif action == "new_timer":
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             self._show_idle()
         elif action == "shutdown":
             self.timer.cancel()
@@ -296,33 +327,34 @@ class App(tk.Tk):
             self._warning_window.destroy()
             self._warning_window = None
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
             self._show_idle()
 
         if self.timer.state in (TimerState.RUNNING, TimerState.PAUSED):
             if messagebox.askyesno("Active Timer",
                                    "A shutdown timer is active. Cancel timer and exit?"):
                 self.timer.cancel()
-                self.shutdown_manager.abort_shutdown()
+                self.power_manager.abort()
                 logger.info("Application closed (timer cancelled)")
                 self.destroy()
             return
 
         if self.timer.state == TimerState.WARNING:
             self.timer.cancel()
-            self.shutdown_manager.abort_shutdown()
+            self.power_manager.abort()
 
         logger.info("Application closed")
         self.destroy()
 
 
 class WarningWindow(tk.Toplevel):
-    def __init__(self, parent: App, timer: TimerManager, shutdown_manager: ShutdownManager,
+    def __init__(self, parent: App, timer: TimerManager, power_manager: PowerManager,
                  settings: SettingsManager, on_done):
         super().__init__(parent)
         self.parent_app = parent
         self.timer = timer
-        self.shutdown_manager = shutdown_manager
+        self.power_manager = power_manager
+        self.shutdown_manager = power_manager
         self.settings = settings
         self.on_done = on_done
         self._session_id = timer.session_id
@@ -330,7 +362,8 @@ class WarningWindow(tk.Toplevel):
         self._remaining = self._warning_duration
         self._closed_safely = False
 
-        self.title("SHUTDOWN READY")
+        action_label = ACTION_LABELS.get(self.parent_app._selected_action, "Shut Down")
+        self.title(f"{action_label} Ready")
         self.geometry("380x400")
         self.resizable(False, False)
         self.configure(bg="#1e1e2e")
@@ -345,11 +378,13 @@ class WarningWindow(tk.Toplevel):
         bg = "#1e1e2e"
         self.configure(bg=bg)
 
-        title = tk.Label(self, text="SHUTDOWN READY", font=("Segoe UI", 20, "bold"),
+        action_label = ACTION_LABELS.get(self.parent_app._selected_action, "Shut Down")
+        title = tk.Label(self, text=f"{action_label} Ready", font=("Segoe UI", 20, "bold"),
                          bg=bg, fg="#dc2626")
         title.pack(pady=(20, 5))
 
-        subtitle = tk.Label(self, text="Your PC will shut down in", font=("Segoe UI", 12),
+        verb = ACTION_VERBS.get(self.parent_app._selected_action, "shut down")
+        subtitle = tk.Label(self, text=f"Your PC will {verb} in", font=("Segoe UI", 12),
                             bg=bg, fg="#e2e8f0")
         subtitle.pack(pady=(5, 5))
 
@@ -392,7 +427,7 @@ class WarningWindow(tk.Toplevel):
 
     def _tick(self) -> None:
         if self._remaining <= 0:
-            self.shutdown_manager.request_shutdown(delay_seconds=10)
+            self.power_manager.execute(self.parent_app._selected_action, delay_seconds=10)
             self._closed_safely = True
             self.on_done("shutdown", self._session_id)
             self.destroy()
@@ -423,7 +458,7 @@ class WarningWindow(tk.Toplevel):
             if not messagebox.askyesno("Confirm Shutdown", "Shut down your PC now?"):
                 return
         self._closed_safely = True
-        self.shutdown_manager.immediate_shutdown()
+        self.power_manager.execute_immediate(self.parent_app._selected_action)
         self.on_done("shutdown", self._session_id)
         self.destroy()
 
