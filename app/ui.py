@@ -2,7 +2,7 @@ import logging
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from app.timer_manager import TimerManager, TimerState
 from app.power_manager import PowerManager, PowerAction, ACTION_LABELS, ACTION_VERBS
@@ -93,15 +93,25 @@ class App(tk.Tk):
                  bg=c["bg"], fg=c["text_dim"]).pack(pady=(18, 2))
 
         tk.Label(self._idle_frame, text="When should this PC power down?",
-                 font=("Segoe UI", 10), bg=c["bg"], fg=c["text_muted"]).pack(pady=(0, 12))
+                 font=("Segoe UI", 10), bg=c["bg"], fg=c["text_muted"]).pack(pady=(0, 8))
 
-        time_frame = tk.Frame(self._idle_frame, bg=c["bg"])
-        time_frame.pack(padx=20, pady=5)
+        self._mode_var = tk.StringVar(value="countdown")
+        mode_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        mode_frame.pack(pady=(0, 6))
+        for text, val in [("Countdown", "countdown"), ("At time", "schedule")]:
+            rb = tk.Radiobutton(mode_frame, text=text, variable=self._mode_var, value=val,
+                                command=self._on_mode_change, font=("Segoe UI", 9),
+                                bg=c["bg"], fg=c["text"], selectcolor=c["input_bg"],
+                                activebackground=c["bg"], indicatoron=False,
+                                padx=12, pady=4, relief=tk.FLAT,
+                                borderwidth=1)
+            rb.pack(side=tk.LEFT, padx=3)
 
+        self._countdown_frame = tk.Frame(self._idle_frame, bg=c["bg"])
         self._hours_var = tk.StringVar(value="00")
         self._minutes_var = tk.StringVar(value="30")
         self._seconds_var = tk.StringVar(value="00")
-
+        time_frame = self._countdown_frame
         for i, (var, label_text) in enumerate([(self._hours_var, "H"), (self._minutes_var, "M"), (self._seconds_var, "S")]):
             col = tk.Frame(time_frame, bg=c["bg"])
             col.pack(side=tk.LEFT, padx=4)
@@ -115,6 +125,39 @@ class App(tk.Tk):
             if i < 2:
                 tk.Label(time_frame, text=":", font=("Consolas", 22, "bold"),
                          bg=c["bg"], fg=c["text_dim"]).pack(side=tk.LEFT, padx=1)
+
+        self._schedule_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        now = time.localtime()
+        sched_h = now.tm_hour % 12
+        if sched_h == 0:
+            sched_h = 12
+        self._sched_hour_var = tk.StringVar(value=str(sched_h))
+        self._sched_min_var = tk.StringVar(value=f"{now.tm_min:02d}")
+        self._sched_ampm_var = tk.StringVar(value="PM" if now.tm_hour >= 12 else "AM")
+
+        sf = self._schedule_frame
+        for i, (var, label_text) in enumerate([(self._sched_hour_var, "HH"), (self._sched_min_var, "MM")]):
+            col = tk.Frame(sf, bg=c["bg"])
+            col.pack(side=tk.LEFT, padx=4)
+            e = tk.Entry(col, textvariable=var, width=3, justify=tk.CENTER,
+                         font=("Consolas", 22), bg=c["input_bg"], fg=c["text"],
+                         insertbackground=c["text"], relief=tk.FLAT, bd=0,
+                         highlightthickness=1, highlightbackground=c["border"])
+            e.pack(ipady=4)
+            e.bind("<FocusIn>", lambda ev, w=e: w.select_range(0, tk.END))
+            tk.Label(col, text=label_text, font=("Segoe UI", 8), bg=c["bg"], fg=c["text_muted"]).pack()
+            if i == 0:
+                tk.Label(sf, text=":", font=("Consolas", 22, "bold"),
+                         bg=c["bg"], fg=c["text_dim"]).pack(side=tk.LEFT, padx=1)
+
+        ampm_frame = tk.Frame(sf, bg=c["bg"])
+        ampm_frame.pack(side=tk.LEFT, padx=(6, 0))
+        for val in ["AM", "PM"]:
+            tk.Radiobutton(ampm_frame, text=val, variable=self._sched_ampm_var, value=val,
+                           font=("Segoe UI", 10, "bold"), bg=c["bg"], fg=c["text"],
+                           selectcolor=c["input_bg"], activebackground=c["bg"]).pack()
+
+        self._countdown_frame.pack(padx=20, pady=5)
 
         self._start_btn_var = tk.StringVar(value="Start Timer")
         ttk.Button(self._idle_frame, textvariable=self._start_btn_var,
@@ -219,6 +262,18 @@ class App(tk.Tk):
         self._pause_var.set("Pause")
         self._status_var.set("Timer active")
 
+    def _on_mode_change(self) -> None:
+        mode = self._mode_var.get()
+        self._countdown_frame.pack_forget()
+        self._schedule_frame.pack_forget()
+        if mode == "countdown":
+            self._countdown_frame.pack(padx=20, pady=5)
+            self._start_btn_var.set(f"Start {ACTION_LABELS.get(self._selected_action, 'Shut Down')}")
+        else:
+            self._schedule_frame.pack(padx=20, pady=5)
+            self._start_btn_var.set(f"Schedule {ACTION_LABELS.get(self._selected_action, 'Shut Down')}")
+        self._error_var.set("")
+
     def _on_action_change(self, selection: str) -> None:
         for action, label in ACTION_LABELS.items():
             if label == selection:
@@ -239,9 +294,12 @@ class App(tk.Tk):
             self._progress_var.set(pct)
 
     def _on_start(self) -> None:
-        total, errors = self.timer.validate_duration(
-            self._hours_var.get(), self._minutes_var.get(), self._seconds_var.get()
-        )
+        if self._mode_var.get() == "schedule":
+            total, errors = self._calc_schedule_duration()
+        else:
+            total, errors = self.timer.validate_duration(
+                self._hours_var.get(), self._minutes_var.get(), self._seconds_var.get()
+            )
         if errors:
             self._error_var.set("; ".join(errors))
             return
@@ -255,6 +313,41 @@ class App(tk.Tk):
         self._update_progress(total)
         label = ACTION_LABELS.get(self._selected_action, "Shut Down")
         logger.info("Timer started: %s (%s)", format_duration(total), label)
+
+    def _calc_schedule_duration(self) -> tuple:
+        errors = []
+        try:
+            h = int(self._sched_hour_var.get().strip())
+        except (ValueError, AttributeError):
+            return 0, ["Invalid hour"]
+        try:
+            m = int(self._sched_min_var.get().strip())
+        except (ValueError, AttributeError):
+            return 0, ["Invalid minutes"]
+        ampm = self._sched_ampm_var.get()
+
+        if h < 1 or h > 12:
+            return 0, ["Hour must be 1-12"]
+        if m < 0 or m > 59:
+            return 0, ["Minutes must be 0-59"]
+
+        hour_24 = h % 12
+        if ampm == "PM":
+            hour_24 += 12
+
+        now = time.localtime()
+        target = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, hour_24, m, 0, 0, 0, -1))
+        diff = target - time.time()
+
+        if diff <= 0:
+            target += 24 * 3600
+            diff = target - time.time()
+
+        from app.timer_manager import MAX_DURATION_SECONDS
+        if diff > MAX_DURATION_SECONDS:
+            return 0, [f"Maximum duration is 7 days"]
+
+        return int(diff), errors
 
     def _on_preset(self, seconds: int) -> None:
         h = seconds // 3600
