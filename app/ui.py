@@ -2,7 +2,7 @@ import logging
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from app.timer_manager import TimerManager, TimerState
 from app.power_manager import PowerManager, PowerAction, ACTION_LABELS, ACTION_VERBS
@@ -43,7 +43,14 @@ class App(tk.Tk):
 
         self._show_idle()
         self._update_action_labels()
+        self._bind_shortcuts()
         logger.info("Application started")
+
+    def _bind_shortcuts(self) -> None:
+        self.bind("<space>", lambda e: self._on_pause_resume())
+        self.bind("<Escape>", lambda e: self._on_close())
+        self.bind("<Control-s>", lambda e: self._on_settings())
+        self.bind("<Control-S>", lambda e: self._on_settings())
 
     def _build_styles(self) -> None:
         c = self.theme.colors
@@ -93,15 +100,25 @@ class App(tk.Tk):
                  bg=c["bg"], fg=c["text_dim"]).pack(pady=(18, 2))
 
         tk.Label(self._idle_frame, text="When should this PC power down?",
-                 font=("Segoe UI", 10), bg=c["bg"], fg=c["text_muted"]).pack(pady=(0, 12))
+                 font=("Segoe UI", 10), bg=c["bg"], fg=c["text_muted"]).pack(pady=(0, 8))
 
-        time_frame = tk.Frame(self._idle_frame, bg=c["bg"])
-        time_frame.pack(padx=20, pady=5)
+        self._mode_var = tk.StringVar(value="countdown")
+        mode_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        mode_frame.pack(pady=(0, 6))
+        for text, val in [("Countdown", "countdown"), ("At time", "schedule")]:
+            rb = tk.Radiobutton(mode_frame, text=text, variable=self._mode_var, value=val,
+                                command=self._on_mode_change, font=("Segoe UI", 9),
+                                bg=c["bg"], fg=c["text"], selectcolor=c["input_bg"],
+                                activebackground=c["bg"], indicatoron=False,
+                                padx=12, pady=4, relief=tk.FLAT,
+                                borderwidth=1)
+            rb.pack(side=tk.LEFT, padx=3)
 
+        self._countdown_frame = tk.Frame(self._idle_frame, bg=c["bg"])
         self._hours_var = tk.StringVar(value="00")
         self._minutes_var = tk.StringVar(value="30")
         self._seconds_var = tk.StringVar(value="00")
-
+        time_frame = self._countdown_frame
         for i, (var, label_text) in enumerate([(self._hours_var, "H"), (self._minutes_var, "M"), (self._seconds_var, "S")]):
             col = tk.Frame(time_frame, bg=c["bg"])
             col.pack(side=tk.LEFT, padx=4)
@@ -116,6 +133,39 @@ class App(tk.Tk):
                 tk.Label(time_frame, text=":", font=("Consolas", 22, "bold"),
                          bg=c["bg"], fg=c["text_dim"]).pack(side=tk.LEFT, padx=1)
 
+        self._schedule_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        now = time.localtime()
+        sched_h = now.tm_hour % 12
+        if sched_h == 0:
+            sched_h = 12
+        self._sched_hour_var = tk.StringVar(value=str(sched_h))
+        self._sched_min_var = tk.StringVar(value=f"{now.tm_min:02d}")
+        self._sched_ampm_var = tk.StringVar(value="PM" if now.tm_hour >= 12 else "AM")
+
+        sf = self._schedule_frame
+        for i, (var, label_text) in enumerate([(self._sched_hour_var, "HH"), (self._sched_min_var, "MM")]):
+            col = tk.Frame(sf, bg=c["bg"])
+            col.pack(side=tk.LEFT, padx=4)
+            e = tk.Entry(col, textvariable=var, width=3, justify=tk.CENTER,
+                         font=("Consolas", 22), bg=c["input_bg"], fg=c["text"],
+                         insertbackground=c["text"], relief=tk.FLAT, bd=0,
+                         highlightthickness=1, highlightbackground=c["border"])
+            e.pack(ipady=4)
+            e.bind("<FocusIn>", lambda ev, w=e: w.select_range(0, tk.END))
+            tk.Label(col, text=label_text, font=("Segoe UI", 8), bg=c["bg"], fg=c["text_muted"]).pack()
+            if i == 0:
+                tk.Label(sf, text=":", font=("Consolas", 22, "bold"),
+                         bg=c["bg"], fg=c["text_dim"]).pack(side=tk.LEFT, padx=1)
+
+        ampm_frame = tk.Frame(sf, bg=c["bg"])
+        ampm_frame.pack(side=tk.LEFT, padx=(6, 0))
+        for val in ["AM", "PM"]:
+            tk.Radiobutton(ampm_frame, text=val, variable=self._sched_ampm_var, value=val,
+                           font=("Segoe UI", 10, "bold"), bg=c["bg"], fg=c["text"],
+                           selectcolor=c["input_bg"], activebackground=c["bg"]).pack()
+
+        self._countdown_frame.pack(padx=20, pady=5)
+
         self._start_btn_var = tk.StringVar(value="Start Timer")
         ttk.Button(self._idle_frame, textvariable=self._start_btn_var,
                    style="Primary.TButton", command=self._on_start).pack(pady=(14, 10))
@@ -126,11 +176,9 @@ class App(tk.Tk):
         tk.Label(self._idle_frame, text="Quick timers", font=("Segoe UI", 9),
                  bg=c["bg"], fg=c["text_muted"]).pack(pady=(4, 6))
 
-        preset_frame = tk.Frame(self._idle_frame, bg=c["bg"])
-        preset_frame.pack(padx=20)
-        for text, secs in [("15m", 900), ("30m", 1800), ("1h", 3600), ("2h", 7200)]:
-            ttk.Button(preset_frame, text=text, style="Preset.TButton",
-                       command=lambda s=secs: self._on_preset(s)).pack(side=tk.LEFT, padx=3)
+        self._preset_frame = tk.Frame(self._idle_frame, bg=c["bg"])
+        self._preset_frame.pack(padx=20)
+        self._refresh_presets()
 
         action_frame = tk.Frame(self._idle_frame, bg=c["bg"])
         action_frame.pack(pady=(10, 2))
@@ -219,6 +267,18 @@ class App(tk.Tk):
         self._pause_var.set("Pause")
         self._status_var.set("Timer active")
 
+    def _on_mode_change(self) -> None:
+        mode = self._mode_var.get()
+        self._countdown_frame.pack_forget()
+        self._schedule_frame.pack_forget()
+        if mode == "countdown":
+            self._countdown_frame.pack(padx=20, pady=5)
+            self._start_btn_var.set(f"Start {ACTION_LABELS.get(self._selected_action, 'Shut Down')}")
+        else:
+            self._schedule_frame.pack(padx=20, pady=5)
+            self._start_btn_var.set(f"Schedule {ACTION_LABELS.get(self._selected_action, 'Shut Down')}")
+        self._error_var.set("")
+
     def _on_action_change(self, selection: str) -> None:
         for action, label in ACTION_LABELS.items():
             if label == selection:
@@ -238,15 +298,144 @@ class App(tk.Tk):
             pct = max(0, min(100, (elapsed / self._initial_duration) * 100))
             self._progress_var.set(pct)
 
+    def _refresh_presets(self) -> None:
+        c = self.theme.colors
+        for w in self._preset_frame.winfo_children():
+            w.destroy()
+
+        for text, secs in [("15m", 900), ("30m", 1800), ("1h", 3600), ("2h", 7200)]:
+            ttk.Button(self._preset_frame, text=text, style="Preset.TButton",
+                       command=lambda s=secs: self._on_preset(s)).pack(side=tk.LEFT, padx=3)
+
+        custom_presets: List[Dict] = self.settings.get("custom_presets", [])
+        for p in custom_presets:
+            label = p.get("label", "?")
+            total_s = p.get("hours", 0) * 3600 + p.get("minutes", 0) * 60 + p.get("seconds", 0)
+            if total_s <= 0:
+                continue
+            btn = ttk.Button(self._preset_frame, text=label, style="Accent.TButton",
+                             command=lambda s=total_s: self._on_preset(s))
+            btn.pack(side=tk.LEFT, padx=3)
+            btn.bind("<Button-3>", lambda ev, p=p: self._on_preset_context(ev, p))
+
+        btn = tk.Button(self._preset_frame, text="+", font=("Segoe UI", 10, "bold"),
+                        bg=c["surface"], fg=c["text_dim"], width=3,
+                        activebackground=c["surface_hover"], relief=tk.FLAT,
+                        command=self._on_save_preset)
+        btn.pack(side=tk.LEFT, padx=3)
+
+    def _on_save_preset(self) -> None:
+        if self._mode_var.get() != "countdown":
+            self._error_var.set("Presets only work in countdown mode")
+            return
+        try:
+            h = int(self._hours_var.get().strip() or "0")
+            m = int(self._minutes_var.get().strip() or "0")
+            s = int(self._seconds_var.get().strip() or "0")
+        except ValueError:
+            self._error_var.set("Enter a valid time first")
+            return
+        total = h * 3600 + m * 60 + s
+        if total <= 0:
+            self._error_var.set("Enter a time greater than zero")
+            return
+        if total > 86400:
+            self._error_var.set("Max preset is 24 hours")
+            return
+
+        if h > 0:
+            label = f"{h}h{m:02d}m" if m > 0 else f"{h}h"
+        elif m > 0:
+            label = f"{m}m{s:02d}s" if s > 0 else f"{m}m"
+        else:
+            label = f"{s}s"
+
+        presets: List[Dict] = list(self.settings.get("custom_presets", []))
+        if len(presets) >= 8:
+            self._error_var.set("Max 8 custom presets")
+            return
+        for p in presets:
+            if p.get("hours") == h and p.get("minutes") == m and p.get("seconds") == s:
+                self._error_var.set("Preset already exists")
+                return
+
+        presets.append({"label": label, "hours": h, "minutes": m, "seconds": s})
+        self.settings.set("custom_presets", presets)
+        self._refresh_presets()
+        self._error_var.set(f"Saved preset: {label}")
+
+    def _on_preset_context(self, event, preset: Dict) -> None:
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Delete preset",
+                         command=lambda: self._delete_preset(preset))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _delete_preset(self, preset: Dict) -> None:
+        presets: List[Dict] = list(self.settings.get("custom_presets", []))
+        presets = [p for p in presets if not (p.get("label") == preset.get("label")
+                                              and p.get("hours") == preset.get("hours")
+                                              and p.get("minutes") == preset.get("minutes")
+                                              and p.get("seconds") == preset.get("seconds"))]
+        self.settings.set("custom_presets", presets)
+        self._refresh_presets()
+
     def _on_start(self) -> None:
-        total, errors = self.timer.validate_duration(
-            self._hours_var.get(), self._minutes_var.get(), self._seconds_var.get()
-        )
+        if self._mode_var.get() == "schedule":
+            total, errors = self._calc_schedule_duration()
+        else:
+            total, errors = self.timer.validate_duration(
+                self._hours_var.get(), self._minutes_var.get(), self._seconds_var.get()
+            )
         if errors:
             self._error_var.set("; ".join(errors))
             return
-
         self._error_var.set("")
+        self._pending_duration = total
+        self._show_start_summary(total)
+
+    def _show_start_summary(self, total: int) -> None:
+        c = self.theme.colors
+        action_label = ACTION_LABELS.get(self._selected_action, "Shut Down")
+
+        win = tk.Toplevel(self)
+        win.title("Confirm")
+        win.geometry("320x220")
+        win.resizable(False, False)
+        win.configure(bg=c["bg"])
+        win.transient(self)
+        win.grab_set()
+
+        tk.Label(win, text="Ready to start?", font=("Segoe UI", 14, "bold"),
+                 bg=c["bg"], fg=c["text"]).pack(pady=(18, 8))
+
+        target = time.time() + total
+        summary_lines = [
+            f"Action: {action_label}",
+            f"Duration: {format_duration(total)}",
+            f"Until: {format_shutdown_time(target).replace('Scheduled for ', '')}",
+        ]
+        for line in summary_lines:
+            tk.Label(win, text=line, font=("Segoe UI", 10),
+                     bg=c["bg"], fg=c["text_dim"]).pack(pady=1)
+
+        btn_frame = tk.Frame(win, bg=c["bg"])
+        btn_frame.pack(pady=(16, 0))
+
+        def confirm():
+            win.destroy()
+            self._start_timer(self._pending_duration)
+
+        def cancel():
+            win.destroy()
+
+        tk.Button(btn_frame, text="Start", bg=c["primary"], fg="white",
+                  font=("Segoe UI", 10, "bold"), activebackground=c["primary_hover"],
+                  relief="flat", padx=16, pady=6, command=confirm).pack(side=tk.LEFT, padx=6)
+        tk.Button(btn_frame, text="Cancel", bg=c["surface"], fg=c["text"],
+                  font=("Segoe UI", 10), activebackground=c["surface_hover"],
+                  relief="flat", padx=16, pady=6, command=cancel).pack(side=tk.LEFT, padx=6)
+
+    def _start_timer(self, total: int) -> None:
         self._initial_duration = total
         self.timer.start(total, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
         self._show_running()
@@ -256,6 +445,41 @@ class App(tk.Tk):
         label = ACTION_LABELS.get(self._selected_action, "Shut Down")
         logger.info("Timer started: %s (%s)", format_duration(total), label)
 
+    def _calc_schedule_duration(self) -> tuple:
+        errors = []
+        try:
+            h = int(self._sched_hour_var.get().strip())
+        except (ValueError, AttributeError):
+            return 0, ["Invalid hour"]
+        try:
+            m = int(self._sched_min_var.get().strip())
+        except (ValueError, AttributeError):
+            return 0, ["Invalid minutes"]
+        ampm = self._sched_ampm_var.get()
+
+        if h < 1 or h > 12:
+            return 0, ["Hour must be 1-12"]
+        if m < 0 or m > 59:
+            return 0, ["Minutes must be 0-59"]
+
+        hour_24 = h % 12
+        if ampm == "PM":
+            hour_24 += 12
+
+        now = time.localtime()
+        target = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, hour_24, m, 0, 0, 0, -1))
+        diff = target - time.time()
+
+        if diff <= 0:
+            target += 24 * 3600
+            diff = target - time.time()
+
+        from app.timer_manager import MAX_DURATION_SECONDS
+        if diff > MAX_DURATION_SECONDS:
+            return 0, [f"Maximum duration is 7 days"]
+
+        return int(diff), errors
+
     def _on_preset(self, seconds: int) -> None:
         h = seconds // 3600
         m = (seconds % 3600) // 60
@@ -263,6 +487,8 @@ class App(tk.Tk):
         self._hours_var.set(f"{h:02d}")
         self._minutes_var.set(f"{m:02d}")
         self._seconds_var.set(f"{s:02d}")
+        self._mode_var.set("countdown")
+        self._on_mode_change()
         self._on_start()
 
     def _on_pause_resume(self) -> None:
@@ -332,7 +558,7 @@ class App(tk.Tk):
         self._warning_window = WarningWindow(self, self.timer, self.power_manager, self.settings,
                                               on_done=self._on_warning_done)
 
-    def _on_warning_done(self, action: str, session_id: int) -> None:
+    def _on_warning_done(self, action: str, session_id: int, minutes: int = 30) -> None:
         if session_id != self.timer.session_id:
             logger.info("Stale warning callback ignored (session %d != %d)", session_id, self.timer.session_id)
             return
@@ -345,14 +571,15 @@ class App(tk.Tk):
             self._show_idle()
             self._error_var.set("Timer cancelled")
         elif action == "postpone":
+            postpone_secs = minutes * 60
             self.timer.cancel()
-            self.timer.start(1800, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
-            self._initial_duration = 1800
+            self.timer.start(postpone_secs, on_expire=self._on_timer_expired, tick_callback=self._on_tick)
+            self._initial_duration = postpone_secs
             self._show_running()
-            self._update_countdown(1800)
-            self._update_schedule(1800)
-            self._update_progress(1800)
-            self._error_var.set("Postponed by 30 minutes")
+            self._update_countdown(postpone_secs)
+            self._update_schedule(postpone_secs)
+            self._update_progress(postpone_secs)
+            self._error_var.set(f"Postponed by {minutes} minutes")
         elif action == "new_timer":
             self.timer.cancel()
             self.power_manager.abort()
@@ -434,11 +661,20 @@ class WarningWindow(tk.Toplevel):
         grid.columnconfigure(0, weight=1)
         grid.columnconfigure(1, weight=1)
 
+        postpone_opts = settings.get("postpone_minutes", [5, 10, 15, 30, 60])
+        if not postpone_opts:
+            postpone_opts = [30]
+        self._postpone_var = tk.StringVar(value=f"+{postpone_opts[0]}m")
+
         btn_style = {"font": ("Segoe UI", 10, "bold"), "relief": "flat", "bd": 0, "padx": 8, "pady": 8}
         tk.Button(grid, text="Cancel", bg=c["success"], fg="white",
                   activebackground=c["success_hover"], command=self._on_cancel, **btn_style).grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=2)
-        tk.Button(grid, text="+30 min", bg=c["primary"], fg="white",
-                  activebackground=c["primary_hover"], command=self._on_postpone, **btn_style).grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=2)
+        postpone_menu = tk.OptionMenu(grid, self._postpone_var, *[f"+{m}m" for m in postpone_opts])
+        postpone_menu.configure(font=("Segoe UI", 10, "bold"), bg=c["primary"], fg="white",
+                                activebackground=c["primary_hover"], highlightthickness=0,
+                                relief=tk.FLAT)
+        postpone_menu["menu"].configure(font=("Segoe UI", 9), bg=c["surface"], fg=c["text"])
+        postpone_menu.grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=2)
         tk.Button(grid, text="New Timer", bg="#2563eb", fg="white",
                   activebackground="#1d4ed8", command=self._on_new_timer, **btn_style).grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=2)
         tk.Button(grid, text=action_label + " Now", bg=c["danger"], fg="white",
@@ -462,7 +698,12 @@ class WarningWindow(tk.Toplevel):
         self.destroy()
 
     def _on_postpone(self) -> None:
-        self.on_done("postpone", self._session_id)
+        try:
+            val = self._postpone_var.get().replace("+", "").replace("m", "")
+            minutes = int(val)
+        except (ValueError, AttributeError):
+            minutes = 30
+        self.on_done("postpone", self._session_id, minutes=minutes)
         self.destroy()
 
     def _on_new_timer(self) -> None:
@@ -535,6 +776,15 @@ class SettingsDialog(tk.Toplevel):
                        fg=c["text"], selectcolor=c["input_bg"], font=("Segoe UI", 9),
                        activebackground=c["bg"]).pack(anchor=tk.W, pady=3)
 
+        tk.Label(f, text="Postpone durations (minutes, comma-separated):", bg=c["bg"], fg=c["text"],
+                 font=("Segoe UI", 9)).pack(anchor=tk.W, pady=(8, 2))
+        postpone_str = ",".join(str(m) for m in settings.get("postpone_minutes", [5, 10, 15, 30, 60]))
+        self._postpone_str_var = tk.StringVar(value=postpone_str)
+        tk.Entry(f, textvariable=self._postpone_str_var, width=30,
+                 font=("Consolas", 10), bg=c["input_bg"], fg=c["text"],
+                 insertbackground=c["text"], relief=tk.FLAT,
+                 highlightthickness=1, highlightbackground=c["border"]).pack(anchor=tk.W, pady=2)
+
         tk.Label(f, text="Appearance", font=("Segoe UI", 10, "bold"),
                  bg=c["bg"], fg=c["text_dim"]).pack(anchor=tk.W, pady=(12, 2))
         self._theme_var = tk.StringVar(value=settings.get("theme", "dark"))
@@ -568,6 +818,16 @@ class SettingsDialog(tk.Toplevel):
         self.settings.set("always_on_top_warning", self._topmost_var.get())
         self.settings.set("confirm_before_shutdown", self._confirm_var.get())
         self.settings.set("theme", self._theme_var.get())
+
+        raw = self._postpone_str_var.get().strip()
+        try:
+            vals = sorted(set(int(x.strip()) for x in raw.split(",") if x.strip()))
+            vals = [v for v in vals if 1 <= v <= 180]
+            if vals:
+                self.settings.set("postpone_minutes", vals)
+        except ValueError:
+            pass
+
         self.destroy()
 
     def _reset(self) -> None:
@@ -578,3 +838,4 @@ class SettingsDialog(tk.Toplevel):
             self._topmost_var.set(True)
             self._confirm_var.set(True)
             self._theme_var.set("dark")
+            self._postpone_str_var.set("5,10,15,30,60")
