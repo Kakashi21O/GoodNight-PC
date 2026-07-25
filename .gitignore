@@ -18,6 +18,7 @@ ENV/
 
 # Settings (user-specific)
 .goodnight_pc_settings.json
+.goodnight_pc_active_state.json
 
 # Lock files
 .goodnight_pc.lock
