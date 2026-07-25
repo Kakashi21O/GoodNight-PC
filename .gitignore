@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Logs
+*.log
+
+# Settings (user-specific)
+.goodnight_pc_settings.json
+
+# Lock files
+.goodnight_pc.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Documentation - kept locally, not pushed
+context/
+feature-specs/
+TO_DO_list.md

@@ -1,0 +1,6 @@
+# Auto Shutdown Timer - Dependencies
+# This project uses only Python standard library modules.
+# No third-party packages are required.
+# tkinter - UI (bundled with Python on Windows)
+# winsound - Alert sounds (Windows only, standard library)
+# subprocess, threading, json, logging, time, os, platform, socket, enum, pathlib - all standard library
