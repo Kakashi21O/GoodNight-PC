@@ -111,11 +111,15 @@ class TimerManager:
 
     def add_time(self, seconds: float) -> bool:
         with self._lock:
-            if self._state != TimerState.RUNNING:
-                return False
-            self._target_time += seconds
-            logger.info("Added %.0fs to timer", seconds)
-        return True
+            if self._state == TimerState.RUNNING:
+                self._target_time += seconds
+                logger.info("Added %.0fs to timer", seconds)
+                return True
+            elif self._state == TimerState.PAUSED:
+                self._remaining_when_paused += seconds
+                logger.info("Added %.0fs to paused timer", seconds)
+                return True
+            return False
 
     def replace_timer(self, new_duration: float, on_expire: Callable, tick_callback: Optional[Callable] = None) -> bool:
         self.cancel()
@@ -212,12 +216,14 @@ class TimerManager:
         if not errors:
             if h < 0 or m < 0 or s < 0:
                 errors.append("Values cannot be negative")
-            if m >= 60:
-                errors.append("Minutes must be 0-59")
             if s >= 60:
-                errors.append("Seconds must be 0-59")
-            if h > 23:
-                errors.append("Hours cannot exceed 23")
+                m += s // 60
+                s = s % 60
+            if m >= 60:
+                h += m // 60
+                m = m % 60
+            if h > 167:
+                errors.append("Maximum duration is 7 days (167 hours)")
             if h == 0 and m == 0 and s == 0:
                 errors.append("Duration must be greater than zero")
 

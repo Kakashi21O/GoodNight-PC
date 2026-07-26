@@ -422,6 +422,13 @@ class App(tk.Tk):
             total, errors = self.timer.validate_duration(
                 self._hours_var.get(), self._minutes_var.get(), self._seconds_var.get()
             )
+            if not errors and total > 0:
+                ch = total // 3600
+                cm = (total % 3600) // 60
+                cs = total % 60
+                self._hours_var.set(f"{ch:02d}")
+                self._minutes_var.set(f"{cm:02d}")
+                self._seconds_var.set(f"{cs:02d}")
         if errors:
             self._error_var.set("; ".join(errors))
             return
@@ -540,7 +547,7 @@ class App(tk.Tk):
             self._status_var.set("Timer active")
 
     def _on_add_30(self) -> None:
-        if self.timer.state == TimerState.RUNNING:
+        if self.timer.state in (TimerState.RUNNING, TimerState.PAUSED):
             self.timer.add_time(1800)
             self._initial_duration += 1800
             remaining = self.timer.get_remaining()
@@ -726,8 +733,8 @@ class WarningWindow(tk.Toplevel):
         tk.Button(grid, text="Cancel", bg=c["success"], fg="white",
                   activebackground=c["success_hover"], command=self._on_cancel, **btn_style).grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=2)
         postpone_menu = tk.OptionMenu(grid, self._postpone_var, *[f"+{m}m" for m in postpone_opts])
-        postpone_menu.configure(font=("Segoe UI", 10, "bold"), bg=c["primary"], fg="white",
-                                activebackground=c["primary_hover"], highlightthickness=0,
+        postpone_menu.configure(font=("Segoe UI", 10, "bold"), bg=c["surface"], fg=c["text"],
+                                activebackground=c["surface_hover"], highlightthickness=0,
                                 relief=tk.FLAT)
         postpone_menu["menu"].configure(font=("Segoe UI", 9), bg=c["surface"], fg=c["text"])
         postpone_menu.grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=2)
@@ -735,6 +742,8 @@ class WarningWindow(tk.Toplevel):
                   activebackground="#1d4ed8", command=self._on_new_timer, **btn_style).grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=2)
         tk.Button(grid, text=action_label + " Now", bg=c["danger"], fg="white",
                   activebackground=c["danger_hover"], command=self._on_action_now, **btn_style).grid(row=1, column=1, sticky="ew", padx=(3, 0), pady=2)
+        tk.Button(grid, text="Postpone", bg=c["primary"], fg="white",
+                  activebackground=c["primary_hover"], command=self._on_postpone, **btn_style).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 2))
 
         play_alert_sound(settings.get("alert_sound_enabled", True))
         self._tick()

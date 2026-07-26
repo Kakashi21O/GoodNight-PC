@@ -8,6 +8,7 @@ Designed for situations like watching YouTube, movies, streams, listening to mus
 
 ### Timer & Scheduling
 - **Duration Mode** - Set hours, minutes, and seconds for auto-shutdown
+- **Smart Input** - Enter minutes >= 60 (e.g., 90 min) and they auto-carry into hours (1h 30m)
 - **Schedule Mode** - Pick a specific time (HH:MM AM/PM) for auto-shutdown
 - **Quick Presets** - One-click timers: 15 min, 30 min, 1 hour, 2 hours
 - **Custom Presets** - Save up to 8 user-defined presets (right-click to delete)
@@ -23,14 +24,14 @@ Designed for situations like watching YouTube, movies, streams, listening to mus
 - **Large Countdown Display** - Big clock-style countdown with target time
 - **Progress Bar** - Visual progress indicator
 - **Pause/Resume** - Freeze and continue the countdown (Space key)
-- **Add 30 Minutes** - Postpone shutdown with one click
+- **Add 30 Minutes** - Postpone shutdown with one click (works while paused too)
 - **Configurable Postpone** - Choose from 1-60 minute postpone durations
 - **Change Timer** - Return to editor with remaining time
 - **Cancel** - Completely abort the shutdown process
 
 ### Warning & Recovery
 - **20-Second Warning** - Prominent popup with configurable countdown
-- **4 Warning Actions** - Cancel, Postpone (configurable), New Timer, or Action Now
+- **4 Warning Actions** - Cancel, Postpone (with duration picker + button), New Timer, or Action Now
 - **Configurable Postpone Durations** - Set your own postpone options (5, 10, 15, 30, 60 min)
 - **Alert Sound** - Windows notification sound on warning (configurable)
 - **Timer Recovery** - Persists active timer state; resume after crash or restart
@@ -111,7 +112,7 @@ In test mode, shutdown operations are logged instead of executed.
 ### Setting a Timer
 
 1. Choose a mode: **Countdown** (duration) or **At time** (specific time)
-2. Enter the time values
+2. Enter the time values (minutes >= 60 auto-carry into hours, e.g., 90 min becomes 1h 30m)
 3. Select a power action from the dropdown (Shut Down, Sleep, Restart, etc.)
 4. Click **Start** (or a quick preset) and confirm in the summary dialog
 
@@ -126,7 +127,7 @@ In test mode, shutdown operations are logged instead of executed.
 
 - **Pause** (Space) - Freeze the countdown
 - **Resume** (Space) - Continue from where you paused
-- **+30 Minutes** - Add 30 minutes to the countdown
+- **+30 Minutes** - Add 30 minutes to the countdown (works while paused)
 - **Change Timer** - Return to the timer editor with the remaining time
 - **Cancel** - Abort completely
 
@@ -135,7 +136,7 @@ In test mode, shutdown operations are logged instead of executed.
 When the timer expires, a popup appears with a configurable countdown:
 
 - **Cancel** - Stop everything, return to idle
-- **Postpone** - Choose a duration from the dropdown (configurable in Settings)
+- **Postpone** - Select a duration from the dropdown, then click the Postpone button (configurable in Settings)
 - **New Timer** - Return to the timer editor
 - **Action Now** - Execute the power action immediately (requires confirmation)
 

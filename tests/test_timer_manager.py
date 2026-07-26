@@ -126,10 +126,16 @@ class TestAddTime:
         timer.add_time(120)
         assert timer._target_time - old_target == pytest.approx(120, abs=1)
 
-    def test_add_time_when_paused_fails(self, timer):
+    def test_add_time_when_paused_extends_remaining(self, timer):
         cb = MagicMock()
-        timer.start(60, on_expire=cb)
+        timer.start(300, on_expire=cb)
         timer.pause()
+        remaining_before = timer.get_remaining()
+        assert timer.add_time(60) is True
+        remaining_after = timer.get_remaining()
+        assert remaining_after - remaining_before == pytest.approx(60, abs=1)
+
+    def test_add_time_when_idle_fails(self, timer):
         assert timer.add_time(60) is False
 
 
@@ -147,20 +153,37 @@ class TestValidateDuration:
         total, errors = timer.validate_duration("abc", "0", "0")
         assert errors
 
-    def test_minutes_out_of_range(self, timer):
+    def test_minutes_carry_over_to_hours(self, timer):
         total, errors = timer.validate_duration("0", "60", "0")
-        assert errors
+        assert total == 3600
+        assert errors == []
 
-    def test_seconds_out_of_range(self, timer):
+    def test_minutes_carry_over_large(self, timer):
+        total, errors = timer.validate_duration("0", "90", "0")
+        assert total == 5400
+        assert errors == []
+
+    def test_seconds_carry_over_to_minutes(self, timer):
         total, errors = timer.validate_duration("0", "0", "60")
-        assert errors
+        assert total == 60
+        assert errors == []
+
+    def test_seconds_carry_over_large(self, timer):
+        total, errors = timer.validate_duration("0", "0", "150")
+        assert total == 150
+        assert errors == []
+
+    def test_combined_carry_over(self, timer):
+        total, errors = timer.validate_duration("0", "75", "90")
+        assert total == 4590
+        assert errors == []
 
     def test_negative_values(self, timer):
         total, errors = timer.validate_duration("-1", "0", "0")
         assert errors
 
     def test_hours_too_large(self, timer):
-        total, errors = timer.validate_duration("24", "0", "0")
+        total, errors = timer.validate_duration("168", "0", "0")
         assert errors
 
     def test_exceeds_max_duration(self, timer):
